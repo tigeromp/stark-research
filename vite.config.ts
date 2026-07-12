@@ -64,7 +64,7 @@ export default defineConfig({
       }
     })
   ],
-  base: './',
+  base: '/stark-research/',
   server: {
     port: 5173,
   },
