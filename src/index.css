@@ -297,3 +297,26 @@ body {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* Mobile utilities */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 640px) {
+  .react-flow__controls {
+    bottom: 60px !important;
+    left: 10px !important;
+  }
+  
+  .react-flow__minimap {
+    bottom: 60px !important;
+    right: 10px !important;
+  }
+}

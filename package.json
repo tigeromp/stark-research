@@ -36,14 +36,19 @@
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
-    "wait-on": "^9.0.10"
+    "vite-plugin-pwa": "^1.3.0",
+    "wait-on": "^9.0.10",
+    "workbox-window": "^7.4.1"
   },
   "build": {
     "appId": "com.starkresearch.arc",
     "productName": "A.R.C.",
     "mac": {
       "category": "public.app-category.education",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "darkModeSupport": true
     },
     "directories": {
