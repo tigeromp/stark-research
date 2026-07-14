@@ -2,7 +2,13 @@ import { useMemo, useState } from 'react'
 import { Plus, Sparkles, Trash2, Link2, ChevronRight, ChevronDown } from 'lucide-react'
 import { useResearchStore } from '../store/useResearchStore'
 import { suggestCategoriesFromCitations } from '../lib/categorySuggestions'
-import { countCitationsInCategory, getCategoryById, getTopLevelCategories, getSubcategories } from '../lib/categories'
+import {
+  categoryDisplayColor,
+  countCitationsInCategory,
+  getCategoryById,
+  getTopLevelCategories,
+  getSubcategories,
+} from '../lib/categories'
 
 export function CategoryPanel() {
   const { project, addCategory, removeCategory, selectCategory, selectedCategoryId } =
@@ -171,6 +177,7 @@ export function CategoryPanel() {
                     {subcats.map((subcat) => {
                       const subCount = countCitationsInCategory(project.citations, subcat.id)
                       const isSubSelected = selectedCategoryId === subcat.id
+                      const subColor = categoryDisplayColor(subcat, project.categories)
 
                       return (
                         <div
@@ -182,7 +189,7 @@ export function CategoryPanel() {
                           }`}
                           onClick={() => selectCategory(subcat.id)}
                         >
-                          <span style={{ color: subcat.color }} className="text-sm">{subcat.icon}</span>
+                          <span style={{ color: subColor }} className="text-sm">{subcat.icon}</span>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-slate-200 truncate">{subcat.label}</p>
                             <p className="text-[10px] text-slate-500">{subCount} source{subCount !== 1 ? 's' : ''}</p>
@@ -215,10 +222,11 @@ export function CategoryBadge({ categoryId }: { categoryId: string }) {
   const { project } = useResearchStore()
   const cat = getCategoryById(project.categories, categoryId)
   if (!cat) return null
+  const color = categoryDisplayColor(cat, project.categories)
   return (
     <span
       className="inline-block text-[9px] font-mono px-1.5 py-0.5 rounded"
-      style={{ background: `${cat.color}20`, color: cat.color }}
+      style={{ background: `${color}20`, color }}
     >
       {cat.label.toUpperCase()}
     </span>

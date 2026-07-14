@@ -61,15 +61,36 @@ body {
 
 .react-flow__edge-path {
   stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
   filter: drop-shadow(0 0 3px rgba(212, 100, 74, 0.35));
 }
 
+@keyframes map-dash-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+/* Flowing dashed links across the mind map */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 9 7 !important;
+  animation: map-dash-flow 0.85s linear infinite;
+}
+
 .react-flow__connection-path {
   stroke: var(--brand);
   stroke-width: 2;
+  stroke-dasharray: 9 7;
+  stroke-linecap: round;
+  animation: map-dash-flow 0.85s linear infinite;
+}
+
+.reduce-motion .react-flow__edge.animated .react-flow__edge-path,
+.reduce-motion .react-flow__connection-path {
+  animation: none !important;
 }
 
 .react-flow__controls {
