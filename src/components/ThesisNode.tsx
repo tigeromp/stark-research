@@ -1,6 +1,7 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import { THESIS_COLOR } from '../lib/categories'
 import type { ThesisNodeData } from '../types'
+import { NodeSideHandles } from './NodeSideHandles'
 
 export function ThesisNode({ data, selected }: NodeProps) {
   const { thesis, projectName } = data as unknown as ThesisNodeData
@@ -19,20 +20,7 @@ export function ThesisNode({ data, selected }: NodeProps) {
         ...(selected ? { '--tw-ring-color': THESIS_COLOR } as React.CSSProperties : {}),
       }}
     >
-      <Handle
-        type="target"
-        position={Position.Top}
-        id="in"
-        className="!w-2.5 !h-2.5 !border-2 !-top-1"
-        style={{ background: THESIS_COLOR, borderColor: '#1a1917' }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="out"
-        className="!w-2.5 !h-2.5 !border-2 !-bottom-1"
-        style={{ background: THESIS_COLOR, borderColor: '#1a1917' }}
-      />
+      <NodeSideHandles color={THESIS_COLOR} />
 
       <div
         className="w-10 h-10 mx-auto mb-3 rounded-full flex items-center justify-center text-sm font-display font-semibold"

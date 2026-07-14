@@ -1,9 +1,9 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import type { CitationNodeData } from '../types'
+import { NodeSideHandles } from './NodeSideHandles'
 
 export function CitationNode({ data, selected }: NodeProps) {
   const { citation, label, color } = data as unknown as CitationNodeData
-  const handleStyle = { background: color, borderColor: '#1a1917' }
   const hasNotes = Boolean(citation.notes?.trim())
 
   return (
@@ -17,10 +17,7 @@ export function CitationNode({ data, selected }: NodeProps) {
         boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
       }}
     >
-      <Handle type="target" position={Position.Top} id="in" className="!w-2.5 !h-2.5 !border-2" style={handleStyle} />
-      <Handle type="target" position={Position.Left} id="in-left" className="!w-2 !h-2 !border-2" style={handleStyle} />
-      <Handle type="source" position={Position.Bottom} id="out" className="!w-2.5 !h-2.5 !border-2" style={handleStyle} />
-      <Handle type="source" position={Position.Right} id="out-right" className="!w-2 !h-2 !border-2" style={handleStyle} />
+      <NodeSideHandles color={color} />
 
       <div className="flex items-start gap-2">
         <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: color }} />

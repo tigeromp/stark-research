@@ -23,7 +23,7 @@ export function CategoryPanel() {
   const handleCreate = (parentId?: string) => {
     const label = customLabel.trim()
     if (!label) return
-    addCategory(label, { keywords: [label.toLowerCase()], parentId: parentId || undefined })
+    addCategory(label, { keywords: [label.toLowerCase()], parentId: parentId || undefined, connectToThesis: !parentId })
     setCustomLabel('')
     setAddingSubTo(null)
     if (parentId) {

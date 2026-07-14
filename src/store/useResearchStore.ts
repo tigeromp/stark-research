@@ -544,13 +544,15 @@ export const useResearchStore = create<ResearchState>()(
         )
 
         const connections = [...state.project.connections]
-        if (options.connectToThesis !== false) {
+        const isSubtopic = Boolean(options.parentId)
+        // Top-level topics connect to main idea; subtopics connect only to their parent on the map
+        if (options.connectToThesis !== false && !isSubtopic) {
           connections.push({
             id: uuidv4(),
             source: 'thesis-center',
             target: `category-${category.id}`,
-            sourceHandle: 'out',
-            targetHandle: 'in',
+            sourceHandle: 's-bottom',
+            targetHandle: 't-top',
           })
         }
 
