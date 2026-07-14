@@ -50,6 +50,40 @@ const defaultEdgeOptions = {
   selectable: true,
 }
 
+// Calculate the closest handles between two nodes
+function getClosestHandles(
+  sourcePos: { x: number; y: number },
+  targetPos: { x: number; y: number },
+  sourceWidth = 300,
+  sourceHeight = 150,
+  targetWidth = 300,
+  targetHeight = 150
+): { sourceHandle: string; targetHandle: string } {
+  const sx = sourcePos.x + sourceWidth / 2
+  const sy = sourcePos.y + sourceHeight / 2
+  const tx = targetPos.x + targetWidth / 2
+  const ty = targetPos.y + targetHeight / 2
+
+  const dx = tx - sx
+  const dy = ty - sy
+
+  let sourceHandle = 'out'
+  let targetHandle = 'in'
+
+  // Determine optimal handles based on relative positions
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal connection is dominant
+    sourceHandle = dx > 0 ? 'right' : 'left'
+    targetHandle = dx > 0 ? 'left' : 'right'
+  } else {
+    // Vertical connection is dominant
+    sourceHandle = dy > 0 ? 'bottom' : 'top'
+    targetHandle = dy > 0 ? 'top' : 'bottom'
+  }
+
+  return { sourceHandle, targetHandle }
+}
+
 function buildGraph(
   thesis: string,
   projectName: string,
@@ -109,12 +143,17 @@ function buildGraph(
       const category = categories.find((c) => c.id === categoryId)
       if (!category) return
 
+      const handles = getClosestHandles(
+        category.position,
+        computeCitationPosition(citation, categories, index, citations)
+      )
+
       edges.push({
         id: assignmentEdgeId(categoryId, citation.id),
         source: `category-${categoryId}`,
-        sourceHandle: 'out',
+        sourceHandle: handles.sourceHandle,
         target: nodeId,
-        targetHandle: 'in',
+        targetHandle: handles.targetHandle,
         type: 'deletable',
         style: { stroke: category.color, strokeWidth: 2, opacity: 0.85 },
         animated: animateEdges,
@@ -149,13 +188,28 @@ function buildGraph(
         return // Don't show thesis directly connected to subcategories
       }
     }
+
+    // Calculate optimal handles if not already specified
+    let sourceHandle = conn.sourceHandle ?? undefined
+    let targetHandle = conn.targetHandle ?? undefined
+
+    if (!sourceHandle || !targetHandle) {
+      const sourceNode = nodes.find(n => n.id === conn.source)
+      const targetNode = nodes.find(n => n.id === conn.target)
+      
+      if (sourceNode && targetNode) {
+        const handles = getClosestHandles(sourceNode.position, targetNode.position)
+        sourceHandle = sourceHandle ?? handles.sourceHandle
+        targetHandle = targetHandle ?? handles.targetHandle
+      }
+    }
     
     edges.push({
       id: conn.id,
       source: conn.source,
       target: conn.target,
-      sourceHandle: conn.sourceHandle ?? undefined,
-      targetHandle: conn.targetHandle ?? undefined,
+      sourceHandle,
+      targetHandle,
       type: 'deletable',
       style: {
         stroke:
@@ -176,23 +230,28 @@ function buildGraph(
   // Add parent-child category edges
   categories.forEach((category) => {
     if (category.parentId) {
-      edges.push({
-        id: `subcategory-${category.parentId}-to-${category.id}`,
-        source: `category-${category.parentId}`,
-        target: `category-${category.id}`,
-        sourceHandle: 'out',
-        targetHandle: 'in',
-        type: 'deletable',
-        style: {
-          stroke: category.color,
-          strokeWidth: 2,
-          opacity: 0.7,
-          strokeDasharray: '8 4',
-        },
-        animated: false,
-        deletable: false,
-        data: { deletable: false },
-      })
+      const parentCat = categories.find(c => c.id === category.parentId)
+      if (parentCat) {
+        const handles = getClosestHandles(parentCat.position, category.position)
+        
+        edges.push({
+          id: `subcategory-${category.parentId}-to-${category.id}`,
+          source: `category-${category.parentId}`,
+          target: `category-${category.id}`,
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+          type: 'deletable',
+          style: {
+            stroke: category.color,
+            strokeWidth: 2,
+            opacity: 0.7,
+            strokeDasharray: '8 4',
+          },
+          animated: false,
+          deletable: false,
+          data: { deletable: false },
+        })
+      }
     }
   })
 
