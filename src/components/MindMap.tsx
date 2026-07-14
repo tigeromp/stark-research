@@ -379,11 +379,6 @@ function MindMapCanvas() {
           </button>
         </Panel>
 
-        <Panel position="top-right" className="glass-panel rounded-lg px-3 py-2 m-4 mr-20 pointer-events-auto max-w-[240px]">
-          <p className="text-[10px] font-mono text-arc-500 leading-relaxed">
-            Click the main idea to edit project & lit review. Select a line and press Delete, or use the unlink button to disconnect.
-          </p>
-        </Panel>
 
         <Panel position="bottom-right" className="text-[10px] font-mono text-arc-500/50 m-4 mb-16">
           {project.citations.length} sources · {project.categories.length} categories · {mappedCount} linked
