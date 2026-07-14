@@ -14,6 +14,10 @@ export const supabase = isSupabaseConfigured()
       auth: {
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: window.localStorage,
+        storageKey: 'arc-auth-token',
+        flowType: 'implicit',
       },
     })
   : createClient('https://placeholder.supabase.co', 'placeholder-key')

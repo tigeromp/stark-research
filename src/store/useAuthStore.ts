@@ -23,13 +23,30 @@ export const useAuthStore = create<AuthState>((set) => ({
       return
     }
 
-    const { data: { session } } = await supabase.auth.getSession()
-    set({ user: session?.user ?? null, loading: false })
+    try {
+      // Get existing session
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      if (error) {
+        console.error('Session error:', error)
+      }
+      
+      set({ user: session?.user ?? null, loading: false })
 
-    // Listen for auth changes
-    supabase.auth.onAuthStateChange((_event, session) => {
-      set({ user: session?.user ?? null })
-    })
+      // Listen for auth changes
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email)
+        set({ user: session?.user ?? null })
+        
+        // Refresh session if needed
+        if (event === 'TOKEN_REFRESHED') {
+          console.log('Token refreshed successfully')
+        }
+      })
+    } catch (error) {
+      console.error('Auth initialization error:', error)
+      set({ loading: false, user: null })
+    }
   },
 
   signIn: async (email: string, password: string) => {
