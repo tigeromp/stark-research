@@ -115,46 +115,15 @@ function bestUnassignedAngle(categoryNodes: LayoutNode[], categoryCount: number)
 }
 
 function layoutCategoriesInRing(categories: Category[]): LayoutNode[] {
-  if (categories.length === 0) return []
+  const count = categories.length
+  if (count === 0) return []
 
-  // Separate top-level and subcategories
-  const topLevel = categories.filter(c => !c.parentId)
-  const subCategories = categories.filter(c => c.parentId)
-  
-  const count = topLevel.length
   const radius = categoryOrbitRadius(count)
-  const nodes: LayoutNode[] = []
 
-  // Place top-level categories in ring
-  topLevel.forEach((cat, i) => {
+  return categories.map((cat, i) => {
     const pos = positionOnRing(radius, categoryRingAngle(i, count))
-    nodes.push({ id: cat.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS })
+    return { id: cat.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS }
   })
-
-  // Place subcategories near their parents
-  subCategories.forEach((subCat) => {
-    const parent = nodes.find(n => n.id === subCat.parentId)
-    if (parent) {
-      // Get siblings (other subcategories with same parent)
-      const siblings = subCategories.filter(c => c.parentId === subCat.parentId)
-      const siblingIndex = siblings.findIndex(c => c.id === subCat.id)
-      const siblingCount = siblings.length
-      
-      // Offset from parent based on sibling index
-      const angleOffset = siblingCount === 1 
-        ? 0 
-        : ((siblingIndex / (siblingCount - 1)) - 0.5) * 0.8
-      
-      const parentAngle = Math.atan2(parent.y - THESIS.y, parent.x - THESIS.x)
-      const subAngle = parentAngle + angleOffset
-      const subRadius = radius + 200 // Place subcategories further out
-      
-      const pos = positionOnRing(subRadius, subAngle)
-      nodes.push({ id: subCat.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS })
-    }
-  })
-
-  return nodes
 }
 
 function sourcesAroundTopic(
