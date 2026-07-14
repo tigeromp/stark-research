@@ -15,6 +15,7 @@ import {
 import { createDefaultOutline, sortOutlineSections } from '../lib/outline'
 import { supabaseSync } from '../lib/supabaseSync'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { useAuthStore } from './useAuthStore'
 
 interface ResearchState {
   project: ResearchProject
@@ -168,30 +169,24 @@ export const useResearchStore = create<ResearchState>()(
         const initialized = await supabaseSync.initialize(userId)
         if (!initialized) return
 
-        // Load data from cloud
+        // Push local state first so we never wipe a fuller local project with empty cloud rows
+        await get().syncToCloud()
         await get().loadFromCloud()
 
-        // Subscribe to real-time changes
-        supabaseSync.subscribeToChanges(
-          (payload) => {
-            // Handle project changes from other devices
-            console.log('Project changed:', payload)
-            get().loadFromCloud()
-          },
-          (payload) => {
-            // Handle citation changes from other devices
-            console.log('Citation changed:', payload)
-            get().loadFromCloud()
-          }
-        )
+        supabaseSync.subscribeToChanges((payload) => {
+          console.log('Project changed:', payload)
+          get().loadFromCloud()
+        })
       },
 
       syncToCloud: async () => {
         if (!isSupabaseConfigured()) return
+        if (!useAuthStore.getState().user) return
 
         set({ syncStatus: 'syncing' })
         try {
-          await supabaseSync.syncProjects(get().projects)
+          const { error } = await supabaseSync.syncProjects(get().projects)
+          if (error) throw error
           set({ syncStatus: 'synced', lastSyncTime: Date.now() })
         } catch (error) {
           console.error('Sync error:', error)
@@ -204,16 +199,30 @@ export const useResearchStore = create<ResearchState>()(
 
         try {
           const cloudProjects = await supabaseSync.loadProjects()
-          if (cloudProjects.length > 0) {
-            const activeProject =
-              cloudProjects.find((p) => p.id === get().activeProjectId) || cloudProjects[0]
-            set({
-              projects: cloudProjects,
-              project: activeProject,
-              activeProjectId: activeProject.id,
-              lastSyncTime: Date.now(),
-            })
-          }
+          if (cloudProjects.length === 0) return
+
+          const localById = new Map(get().projects.map((p) => [p.id, p]))
+          const merged = cloudProjects.map((cloud) => {
+            const local = localById.get(cloud.id)
+            if (!local) return cloud
+            // Prefer whichever copy was updated more recently
+            return cloud.updatedAt >= local.updatedAt ? cloud : local
+          })
+
+          // Keep any local-only papers that have not synced yet
+          get().projects.forEach((local) => {
+            if (!merged.find((p) => p.id === local.id)) merged.push(local)
+          })
+
+          const activeProject =
+            merged.find((p) => p.id === get().activeProjectId) || merged[0]
+
+          set({
+            projects: merged,
+            project: activeProject,
+            activeProjectId: activeProject.id,
+            lastSyncTime: Date.now(),
+          })
         } catch (error) {
           console.error('Load from cloud error:', error)
         }
@@ -354,11 +363,6 @@ export const useResearchStore = create<ResearchState>()(
         }),
 
       removeCitation: (id) => {
-        // Delete from Supabase
-        if (isSupabaseConfigured()) {
-          supabaseSync.deleteCitation(id)
-        }
-        
         set((state) => ({
           ...syncProject(state, {
             ...state.project,

@@ -24,21 +24,23 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
     setSuccess('')
     setLoading(true)
 
-    const { error: authError } = isSignUp
+    const result = isSignUp
       ? await signUp(email, password)
       : await signIn(email, password)
 
     setLoading(false)
 
-    if (authError) {
-      setError(authError.message)
+    if (result.error) {
+      setError(result.error.message)
+    } else if (isSignUp && 'needsEmailConfirm' in result && result.needsEmailConfirm) {
+      setSuccess('Account created! Check your email to confirm, then sign in.')
+      setIsSignUp(false)
+    } else if (isSignUp) {
+      setSuccess('Account created and signed in!')
+      setTimeout(onClose, 1200)
     } else {
-      if (isSignUp) {
-        setSuccess('Account created! Check your email to verify.')
-      } else {
-        setSuccess('Signed in successfully!')
-        setTimeout(onClose, 1500)
-      }
+      setSuccess('Signed in successfully!')
+      setTimeout(onClose, 1200)
     }
   }
 

@@ -33,6 +33,10 @@ jobs:
         run: npm ci
         
       - name: Build
+        env:
+          # Anon key is public; keep deploy working even without repo secrets
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://tntwkojcrbvoryhxmttp.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudHdrb2pjcmJ2b3J5aHhtdHRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5ODc3MzQsImV4cCI6MjA5OTU2MzczNH0.w3BawXHjUlP34BMFMTRE6qBo4kOrPT9Xyhn4uIc1IGc' }}
         run: npm run build
         
       - name: Setup Pages

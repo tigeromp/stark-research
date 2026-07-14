@@ -1,51 +1,56 @@
 import { create } from 'zustand'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
-import type { User } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 
 interface AuthState {
   user: User | null
+  session: Session | null
   loading: boolean
+  configured: boolean
   signIn: (email: string, password: string) => Promise<{ error: any }>
-  signUp: (email: string, password: string) => Promise<{ error: any }>
+  signUp: (email: string, password: string) => Promise<{ error: any; needsEmailConfirm?: boolean }>
   signOut: () => Promise<void>
-  signInAnonymously: () => Promise<void>
   initialize: () => Promise<void>
 }
 
+let authListenerBound = false
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
+  session: null,
   loading: true,
+  configured: isSupabaseConfigured(),
 
   initialize: async () => {
     if (!isSupabaseConfigured()) {
-      // If Supabase is not configured, work in offline mode
-      set({ loading: false, user: null })
+      set({ loading: false, user: null, session: null, configured: false })
       return
     }
 
     try {
-      // Get existing session
       const { data: { session }, error } = await supabase.auth.getSession()
-      
-      if (error) {
-        console.error('Session error:', error)
-      }
-      
-      set({ user: session?.user ?? null, loading: false })
+      if (error) console.error('Session error:', error)
 
-      // Listen for auth changes
-      supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.email)
-        set({ user: session?.user ?? null })
-        
-        // Refresh session if needed
-        if (event === 'TOKEN_REFRESHED') {
-          console.log('Token refreshed successfully')
-        }
+      set({
+        user: session?.user ?? null,
+        session: session ?? null,
+        loading: false,
+        configured: true,
       })
+
+      if (!authListenerBound) {
+        authListenerBound = true
+        supabase.auth.onAuthStateChange((_event, nextSession) => {
+          set({
+            user: nextSession?.user ?? null,
+            session: nextSession ?? null,
+            loading: false,
+          })
+        })
+      }
     } catch (error) {
       console.error('Auth initialization error:', error)
-      set({ loading: false, user: null })
+      set({ loading: false, user: null, session: null })
     }
   },
 
@@ -54,15 +59,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       return { error: { message: 'Supabase not configured' } }
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    
-    if (data.user) {
-      set({ user: data.user })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (data.session) {
+      set({ user: data.session.user, session: data.session })
     }
-    
+
     return { error }
   },
 
@@ -74,32 +76,30 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo:
+          typeof window !== 'undefined' ? `${window.location.origin}${import.meta.env.BASE_URL}` : undefined,
+      },
     })
-    
-    if (data.user) {
-      set({ user: data.user })
+
+    if (error) return { error }
+
+    // If email confirmation is required, session is null until verified
+    if (data.session) {
+      set({ user: data.session.user, session: data.session })
+      return { error: null, needsEmailConfirm: false }
     }
-    
-    return { error }
+
+    if (data.user) {
+      return { error: null, needsEmailConfirm: true }
+    }
+
+    return { error: { message: 'Sign up failed' } }
   },
 
   signOut: async () => {
     if (!isSupabaseConfigured()) return
-
-    await supabase.auth.signOut()
-    set({ user: null })
-  },
-
-  signInAnonymously: async () => {
-    if (!isSupabaseConfigured()) {
-      set({ user: null, loading: false })
-      return
-    }
-
-    const { data } = await supabase.auth.signInAnonymously()
-    
-    if (data.user) {
-      set({ user: data.user })
-    }
+    await supabase.auth.signOut({ scope: 'local' })
+    set({ user: null, session: null })
   },
 }))
