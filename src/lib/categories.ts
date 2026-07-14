@@ -53,15 +53,68 @@ export function pickUniqueCategoryColor(existing: Category[], preferred?: string
   return CATEGORY_COLORS[existing.length % CATEGORY_COLORS.length]
 }
 
-export function assignUniqueCategoryColors(categories: Category[]): Category[] {
-  const result: Category[] = []
-  for (const cat of categories) {
-    result.push({
-      ...cat,
-      color: pickUniqueCategoryColor(result, ensureDistinctCategoryColor(cat.color, result.length)),
-    })
+/** Mix a color toward white so subtopics read lighter than their parent topic. */
+export function lightenColor(color: string, amount = 0.38): string {
+  const t = Math.min(1, Math.max(0, amount))
+
+  const hsl = color.match(/^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/i)
+  if (hsl) {
+    const h = Number(hsl[1])
+    const s = Number(hsl[2])
+    const l = Number(hsl[3])
+    const nextL = Math.min(92, l + (100 - l) * t)
+    const nextS = Math.max(18, s * (1 - t * 0.35))
+    return `hsl(${Math.round(h)}, ${Math.round(nextS)}%, ${Math.round(nextL)}%)`
   }
-  return result
+
+  const hex = color.replace('#', '')
+  const full =
+    hex.length === 3
+      ? hex
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hex
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return color
+
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * t)
+  const toHex = (n: number) => n.toString(16).padStart(2, '0')
+  return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`
+}
+
+/** Display color: top-level topics keep their color; subtopics are a lighter tint of the parent. */
+export function categoryDisplayColor(category: Category, categories: Category[]): string {
+  if (!category.parentId) return category.color
+  const parent = categories.find((c) => c.id === category.parentId)
+  if (!parent) return lightenColor(category.color)
+  return lightenColor(categoryDisplayColor(parent, categories))
+}
+
+export function assignUniqueCategoryColors(categories: Category[]): Category[] {
+  const tops: Category[] = []
+  const colored = new Map<string, Category>()
+
+  for (const cat of categories) {
+    if (cat.parentId) continue
+    const next = {
+      ...cat,
+      color: pickUniqueCategoryColor(tops, ensureDistinctCategoryColor(cat.color, tops.length)),
+    }
+    tops.push(next)
+    colored.set(next.id, next)
+  }
+
+  for (const cat of categories) {
+    if (!cat.parentId) continue
+    const parent = colored.get(cat.parentId) ?? categories.find((c) => c.id === cat.parentId)
+    const base = parent ? (colored.get(parent.id)?.color ?? parent.color) : cat.color
+    colored.set(cat.id, { ...cat, color: lightenColor(base) })
+  }
+
+  return categories.map((cat) => colored.get(cat.id) ?? cat)
 }
 
 const CATEGORY_ICONS = ['◈', '◇', '▣', '△', '▽', '◎', '✦', '◆', '▲', '▼', '●', '■']
@@ -116,11 +169,17 @@ export function createCategory(
     }
   }
 
+  const parent = options?.parentId
+    ? existing.find((c) => c.id === options.parentId)
+    : undefined
+
   return {
     id: uuidv4(),
     label,
     description: options?.description ?? `Sources related to ${label}`,
-    color: pickUniqueCategoryColor(existing),
+    color: parent
+      ? lightenColor(categoryDisplayColor(parent, existing))
+      : pickUniqueCategoryColor(existing),
     icon: getCategoryIcon(index),
     position: position ?? findNonOverlappingPosition(index, existing),
     keywords: options?.keywords ?? [label.toLowerCase()],
@@ -220,5 +279,5 @@ export function computeCitationPosition(
 
 export function primaryCitationColor(citation: Citation, categories: Category[]): string {
   const first = categories.find((c) => citation.categoryIds.includes(c.id))
-  return first?.color ?? '#64748b'
+  return first ? categoryDisplayColor(first, categories) : '#64748b'
 }

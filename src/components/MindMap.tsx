@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   ReactFlow,
   Background,
@@ -20,6 +20,7 @@ import '@xyflow/react/dist/style.css'
 import { useResearchStore } from '../store/useResearchStore'
 import { useSettingsStore } from '../store/useSettingsStore'
 import {
+  categoryDisplayColor,
   computeCitationPosition,
   countCitationsInCategory,
   primaryCitationColor,
@@ -50,10 +51,25 @@ const nodeTypes = {
   thesis: ThesisNode,
 }
 
+const EDGE_DASH = '9 7'
+
 const defaultEdgeOptions = {
   type: 'deletable',
-  style: { strokeWidth: 2.5 },
+  style: { strokeWidth: 2.5, strokeDasharray: EDGE_DASH },
   selectable: true,
+}
+
+function dashedEdgeStyle(
+  stroke: string,
+  strokeWidth = 2.5,
+  opacity = 0.85
+): CSSProperties {
+  return {
+    stroke,
+    strokeWidth,
+    opacity,
+    strokeDasharray: EDGE_DASH,
+  }
 }
 
 function handlesBetween(sourceId: string, targetId: string, nodes: Node[]) {
@@ -95,7 +111,7 @@ function buildGraph(
   selectedCitationId: string | null,
   selectedCategoryId: string | null,
   thesisSelected: boolean,
-  _animateEdges: boolean
+  animateEdges: boolean
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
@@ -113,12 +129,13 @@ function buildGraph(
   })
 
   categories.forEach((category) => {
+    const displayColor = categoryDisplayColor(category, categories)
     nodes.push({
       id: `category-${category.id}`,
       type: 'category',
       position: category.position,
       data: {
-        category,
+        category: { ...category, color: displayColor },
         citationCount: countCitationsInCategory(citations, category.id),
       },
       draggable: true,
@@ -150,6 +167,7 @@ function buildGraph(
 
       const sourceId = `category-${categoryId}`
       const { sourceHandle, targetHandle } = handlesBetween(sourceId, nodeId, nodes)
+      const stroke = categoryDisplayColor(category, categories)
 
       edges.push({
         id: assignmentEdgeId(categoryId, citation.id),
@@ -158,8 +176,8 @@ function buildGraph(
         target: nodeId,
         targetHandle,
         type: 'deletable',
-        style: { stroke: category.color, strokeWidth: 2, opacity: 0.85 },
-        animated: false,
+        style: dashedEdgeStyle(stroke, 2, 0.85),
+        animated: animateEdges,
         deletable: true,
         data: { deletable: true },
       })
@@ -174,8 +192,8 @@ function buildGraph(
         target: nodeId,
         targetHandle,
         type: 'deletable',
-        style: { stroke: '#64748b', strokeWidth: 1.5, opacity: 0.35, strokeDasharray: '6 4' },
-        animated: false,
+        style: dashedEdgeStyle('#64748b', 1.5, 0.4),
+        animated: animateEdges,
         deletable: false,
         selectable: false,
         data: { deletable: false },
@@ -206,6 +224,12 @@ function buildGraph(
     }
 
     const { sourceHandle, targetHandle } = handlesBetween(conn.source, conn.target, nodes)
+    const stroke =
+      conn.source === 'thesis-center' || conn.target === 'thesis-center'
+        ? THESIS_COLOR
+        : conn.source.startsWith('citation-') && conn.target.startsWith('citation-')
+          ? '#fbbf24'
+          : '#94a3b8'
 
     edges.push({
       id: conn.id,
@@ -214,23 +238,14 @@ function buildGraph(
       sourceHandle,
       targetHandle,
       type: 'deletable',
-      style: {
-        stroke:
-          conn.source === 'thesis-center' || conn.target === 'thesis-center'
-            ? THESIS_COLOR
-            : conn.source.startsWith('citation-') && conn.target.startsWith('citation-')
-              ? '#fbbf24'
-              : '#94a3b8',
-        strokeWidth: 2.5,
-        opacity: 0.85,
-      },
-      animated: false,
+      style: dashedEdgeStyle(stroke, 2.5, 0.85),
+      animated: animateEdges,
       deletable: true,
       data: { deletable: true },
     })
   })
 
-  // Subtopic → parent category (dashed), then sources hang off the subtopic
+  // Subtopic → parent topic (lighter subtopic color); sources hang off the subtopic
   categories.forEach((category) => {
     if (!category.parentId) return
     const parent = categories.find((c) => c.id === category.parentId)
@@ -239,6 +254,7 @@ function buildGraph(
     const sourceId = `category-${category.parentId}`
     const targetId = `category-${category.id}`
     const { sourceHandle, targetHandle } = handlesBetween(sourceId, targetId, nodes)
+    const stroke = categoryDisplayColor(category, categories)
 
     edges.push({
       id: `subcategory-${category.parentId}-to-${category.id}`,
@@ -247,13 +263,8 @@ function buildGraph(
       sourceHandle,
       targetHandle,
       type: 'deletable',
-      style: {
-        stroke: category.color,
-        strokeWidth: 2.5,
-        opacity: 0.85,
-        strokeDasharray: '8 4',
-      },
-      animated: false,
+      style: dashedEdgeStyle(stroke, 2.25, 0.8),
+      animated: animateEdges,
       deletable: false,
       data: { deletable: false },
     })
@@ -410,7 +421,7 @@ function MindMapCanvas() {
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={{ stroke: '#d4644a', strokeWidth: 2 }}
+        connectionLineStyle={{ stroke: '#d4644a', strokeWidth: 2, strokeDasharray: EDGE_DASH }}
         connectionMode={ConnectionMode.Loose}
         snapToGrid={false}
         fitView
