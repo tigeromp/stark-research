@@ -50,6 +50,33 @@ const defaultEdgeOptions = {
   selectable: true,
 }
 
+// Calculate optimal handle based on node positions
+function getOptimalHandle(
+  sourcePos: { x: number; y: number },
+  targetPos: { x: number; y: number },
+  isSource: boolean
+): string {
+  const dx = targetPos.x - sourcePos.x
+  const dy = targetPos.y - sourcePos.y
+  
+  // Determine primary direction
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal dominant
+    if (isSource) {
+      return dx > 0 ? 'out-right' : 'in-left'
+    } else {
+      return dx > 0 ? 'in-left' : 'out-right'
+    }
+  } else {
+    // Vertical dominant
+    if (isSource) {
+      return dy > 0 ? 'out' : 'in'
+    } else {
+      return dy > 0 ? 'in' : 'out'
+    }
+  }
+}
+
 function buildGraph(
   thesis: string,
   projectName: string,
@@ -109,12 +136,16 @@ function buildGraph(
       const category = categories.find((c) => c.id === categoryId)
       if (!category) return
 
+      const citationPos = computeCitationPosition(citation, categories, index, citations)
+      const sourceHandle = getOptimalHandle(category.position, citationPos, true)
+      const targetHandle = getOptimalHandle(category.position, citationPos, false)
+
       edges.push({
         id: assignmentEdgeId(categoryId, citation.id),
         source: `category-${categoryId}`,
-        sourceHandle: 'out',
+        sourceHandle,
         target: nodeId,
-        targetHandle: 'in',
+        targetHandle,
         type: 'deletable',
         style: { stroke: category.color, strokeWidth: 2, opacity: 0.85 },
         animated: animateEdges,
@@ -149,13 +180,27 @@ function buildGraph(
         return // Don't show thesis directly connected to subcategories
       }
     }
+
+    // Calculate optimal handles if not already specified
+    let sourceHandle = conn.sourceHandle ?? undefined
+    let targetHandle = conn.targetHandle ?? undefined
+
+    if (!sourceHandle || !targetHandle) {
+      const sourceNode = nodes.find(n => n.id === conn.source)
+      const targetNode = nodes.find(n => n.id === conn.target)
+      
+      if (sourceNode && targetNode) {
+        sourceHandle = sourceHandle ?? getOptimalHandle(sourceNode.position, targetNode.position, true)
+        targetHandle = targetHandle ?? getOptimalHandle(sourceNode.position, targetNode.position, false)
+      }
+    }
     
     edges.push({
       id: conn.id,
       source: conn.source,
       target: conn.target,
-      sourceHandle: conn.sourceHandle ?? undefined,
-      targetHandle: conn.targetHandle ?? undefined,
+      sourceHandle,
+      targetHandle,
       type: 'deletable',
       style: {
         stroke:
@@ -176,23 +221,29 @@ function buildGraph(
   // Add parent-child category edges
   categories.forEach((category) => {
     if (category.parentId) {
-      edges.push({
-        id: `subcategory-${category.parentId}-to-${category.id}`,
-        source: `category-${category.parentId}`,
-        target: `category-${category.id}`,
-        sourceHandle: 'out',
-        targetHandle: 'in',
-        type: 'deletable',
-        style: {
-          stroke: category.color,
-          strokeWidth: 2,
-          opacity: 0.7,
-          strokeDasharray: '8 4',
-        },
-        animated: false,
-        deletable: false,
-        data: { deletable: false },
-      })
+      const parentCat = categories.find(c => c.id === category.parentId)
+      if (parentCat) {
+        const sourceHandle = getOptimalHandle(parentCat.position, category.position, true)
+        const targetHandle = getOptimalHandle(parentCat.position, category.position, false)
+        
+        edges.push({
+          id: `subcategory-${category.parentId}-to-${category.id}`,
+          source: `category-${category.parentId}`,
+          target: `category-${category.id}`,
+          sourceHandle,
+          targetHandle,
+          type: 'deletable',
+          style: {
+            stroke: category.color,
+            strokeWidth: 2,
+            opacity: 0.7,
+            strokeDasharray: '8 4',
+          },
+          animated: false,
+          deletable: false,
+          data: { deletable: false },
+        })
+      }
     }
   })
 
