@@ -59,7 +59,7 @@ interface ResearchState {
   moveOutlineSection: (id: string, direction: 'up' | 'down') => void
   toggleOutlineCitation: (sectionId: string, citationId: string) => void
   linkCategoryToOutlineSection: (sectionId: string, categoryId: string) => void
-  addCategory: (label: string, options?: { keywords?: string[]; isSuggested?: boolean; connectToThesis?: boolean }) => Category
+  addCategory: (label: string, options?: { keywords?: string[]; isSuggested?: boolean; connectToThesis?: boolean; parentId?: string }) => Category
   removeCategory: (id: string) => void
   updateCategory: (id: string, data: Partial<Category>) => void
   updateCategoryPosition: (id: string, position: { x: number; y: number }) => void
@@ -539,6 +539,7 @@ export const useResearchStore = create<ResearchState>()(
           {
             keywords: options.keywords ?? [label.toLowerCase()],
             isSuggested: options.isSuggested ?? false,
+            parentId: options.parentId ?? null,
           }
         )
 

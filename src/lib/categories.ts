@@ -102,7 +102,7 @@ export function createCategory(
   label: string,
   index: number,
   existing: Category[],
-  options?: Partial<Pick<Category, 'description' | 'keywords' | 'isSuggested' | 'position'>>
+  options?: Partial<Pick<Category, 'description' | 'keywords' | 'isSuggested' | 'position' | 'parentId'>>
 ): Category {
   return {
     id: uuidv4(),
@@ -113,7 +113,28 @@ export function createCategory(
     position: options?.position ?? findNonOverlappingPosition(index, existing),
     keywords: options?.keywords ?? [label.toLowerCase()],
     isSuggested: options?.isSuggested ?? false,
+    parentId: options?.parentId ?? null,
   }
+}
+
+export function getSubcategories(categories: Category[], parentId: string): Category[] {
+  return categories.filter(cat => cat.parentId === parentId)
+}
+
+export function getTopLevelCategories(categories: Category[]): Category[] {
+  return categories.filter(cat => !cat.parentId)
+}
+
+export function getCategoryPath(categories: Category[], categoryId: string): Category[] {
+  const path: Category[] = []
+  let current = categories.find(c => c.id === categoryId)
+  
+  while (current) {
+    path.unshift(current)
+    current = current.parentId ? categories.find(c => c.id === current!.parentId) : undefined
+  }
+  
+  return path
 }
 
 export function getCategoryById(categories: Category[], id: string): Category | undefined {

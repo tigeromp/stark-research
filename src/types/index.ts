@@ -15,6 +15,7 @@ export interface Category {
   position: { x: number; y: number }
   keywords: string[]
   isSuggested: boolean
+  parentId?: string | null  // For nested subcategories
 }
 
 export interface MapConnection {
