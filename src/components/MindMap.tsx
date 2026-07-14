@@ -141,6 +141,15 @@ function buildGraph(
   })
 
   connections.forEach((conn) => {
+    // Skip thesis connections to subcategories
+    if (conn.source === 'thesis-center') {
+      const targetId = conn.target.replace('category-', '')
+      const targetCat = categories.find(c => c.id === targetId)
+      if (targetCat?.parentId) {
+        return // Don't show thesis directly connected to subcategories
+      }
+    }
+    
     edges.push({
       id: conn.id,
       source: conn.source,
@@ -162,6 +171,29 @@ function buildGraph(
       deletable: true,
       data: { deletable: true },
     })
+  })
+
+  // Add parent-child category edges
+  categories.forEach((category) => {
+    if (category.parentId) {
+      edges.push({
+        id: `subcategory-${category.parentId}-to-${category.id}`,
+        source: `category-${category.parentId}`,
+        target: `category-${category.id}`,
+        sourceHandle: 'out',
+        targetHandle: 'in',
+        type: 'deletable',
+        style: {
+          stroke: category.color,
+          strokeWidth: 2,
+          opacity: 0.7,
+          strokeDasharray: '8 4',
+        },
+        animated: false,
+        deletable: false,
+        data: { deletable: false },
+      })
+    }
   })
 
   return { nodes, edges }
