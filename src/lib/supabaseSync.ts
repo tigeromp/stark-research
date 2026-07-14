@@ -32,41 +32,59 @@ function rowToProject(row: any): ResearchProject {
     citations: Array.isArray(data.citations) ? data.citations : [],
     categories: Array.isArray(data.categories) ? data.categories : [],
     connections: Array.isArray(data.connections) ? data.connections : [],
-    outline: Array.isArray(data.outline) && data.outline.length > 0
-      ? data.outline
-      : createDefaultOutline(),
-    createdAt: data.createdAt ?? (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
-    updatedAt: data.updatedAt ?? (row.updated_at ? new Date(row.updated_at).getTime() : Date.now()),
+    outline:
+      Array.isArray(data.outline) && data.outline.length > 0
+        ? data.outline
+        : createDefaultOutline(),
+    createdAt:
+      data.createdAt ?? (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
+    updatedAt:
+      data.updatedAt ?? (row.updated_at ? new Date(row.updated_at).getTime() : Date.now()),
   }
 }
 
 export class SupabaseSync {
   private channels: RealtimeChannel[] = []
   private userId: string | null = null
+  private syncing = false
+
+  getUserId() {
+    return this.userId
+  }
+
+  markSyncing(value: boolean) {
+    this.syncing = value
+  }
+
+  isSyncing() {
+    return this.syncing
+  }
 
   async initialize(userId: string) {
-    if (!isSupabaseConfigured()) {
-      console.log('Supabase not configured, using local storage only')
-      return false
-    }
+    if (!isSupabaseConfigured()) return false
+    this.unsubscribe()
     this.userId = userId
     return true
   }
 
-  /** Upsert full project state (mind map, categories, sources, outline). */
   async syncProjects(projects: ResearchProject[]) {
     if (!this.userId || !isSupabaseConfigured()) return { error: null as any }
 
-    const rows = projects.map((p) => projectToRow(this.userId!, p))
-
-    const { error } = await supabase.from('projects').upsert(rows, { onConflict: 'id' })
-
-    if (error) {
-      console.error('Sync projects error:', error)
-      return { error }
+    this.syncing = true
+    try {
+      const rows = projects.map((p) => projectToRow(this.userId!, p))
+      const { error } = await supabase.from('projects').upsert(rows, { onConflict: 'id' })
+      if (error) {
+        console.error('Sync projects error:', error)
+        return { error }
+      }
+      return { error: null }
+    } finally {
+      // Brief delay so our own realtime echo is ignored
+      setTimeout(() => {
+        this.syncing = false
+      }, 800)
     }
-
-    return { error: null }
   }
 
   async loadProjects(): Promise<ResearchProject[]> {
@@ -89,6 +107,8 @@ export class SupabaseSync {
   subscribeToChanges(onProjectChange: (payload: any) => void) {
     if (!this.userId || !isSupabaseConfigured()) return
 
+    this.unsubscribe()
+
     const projectChannel = supabase
       .channel(`projects-changes-${this.userId}`)
       .on(
@@ -99,7 +119,10 @@ export class SupabaseSync {
           table: 'projects',
           filter: `user_id=eq.${this.userId}`,
         },
-        onProjectChange
+        (payload) => {
+          if (this.syncing) return
+          onProjectChange(payload)
+        }
       )
       .subscribe()
 
@@ -114,9 +137,15 @@ export class SupabaseSync {
   }
 
   async deleteProject(projectId: string) {
-    if (!isSupabaseConfigured()) return
-
-    await supabase.from('projects').delete().eq('id', projectId)
+    if (!isSupabaseConfigured() || !this.userId) return
+    this.syncing = true
+    try {
+      await supabase.from('projects').delete().eq('id', projectId)
+    } finally {
+      setTimeout(() => {
+        this.syncing = false
+      }, 800)
+    }
   }
 }
 

@@ -104,13 +104,25 @@ export function createCategory(
   existing: Category[],
   options?: Partial<Pick<Category, 'description' | 'keywords' | 'isSuggested' | 'position' | 'parentId'>>
 ): Category {
+  let position = options?.position
+  if (!position && options?.parentId) {
+    const parent = existing.find((c) => c.id === options.parentId)
+    if (parent) {
+      const siblings = existing.filter((c) => c.parentId === options.parentId).length
+      position = {
+        x: parent.position.x + 40 + siblings * 30,
+        y: parent.position.y + 200,
+      }
+    }
+  }
+
   return {
     id: uuidv4(),
     label,
     description: options?.description ?? `Sources related to ${label}`,
     color: pickUniqueCategoryColor(existing),
     icon: getCategoryIcon(index),
-    position: options?.position ?? findNonOverlappingPosition(index, existing),
+    position: position ?? findNonOverlappingPosition(index, existing),
     keywords: options?.keywords ?? [label.toLowerCase()],
     isSuggested: options?.isSuggested ?? false,
     parentId: options?.parentId ?? null,

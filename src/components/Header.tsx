@@ -87,15 +87,30 @@ export function Header({ onAuthClick }: HeaderProps) {
           >
             {user ? (
               <>
-                <Cloud size={16} className={syncStatus === 'syncing' ? 'text-arc-400 animate-pulse' : 'text-arc-400'} />
+                <Cloud
+                  size={16}
+                  className={
+                    syncStatus === 'syncing'
+                      ? 'text-arc-400 animate-pulse'
+                      : syncStatus === 'error'
+                        ? 'text-red-400'
+                        : 'text-arc-400'
+                  }
+                />
                 <span className="hidden md:inline text-[#9c9590]">
-                  {syncStatus === 'syncing' ? 'Syncing...' : 'Synced'}
+                  {syncStatus === 'syncing'
+                    ? 'Syncing…'
+                    : syncStatus === 'error'
+                      ? 'Sync error'
+                      : syncStatus === 'synced'
+                        ? 'Synced'
+                        : 'Cloud'}
                 </span>
               </>
             ) : (
               <>
                 <CloudOff size={16} className="text-[#9c9590]" />
-                <span className="hidden md:inline text-[#9c9590]">Offline</span>
+                <span className="hidden md:inline text-[#9c9590]">Sign in</span>
               </>
             )}
           </button>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { supabaseSync } from '../lib/supabaseSync'
 import type { Session, User } from '@supabase/supabase-js'
 
 interface AuthState {
@@ -8,7 +9,10 @@ interface AuthState {
   loading: boolean
   configured: boolean
   signIn: (email: string, password: string) => Promise<{ error: any }>
-  signUp: (email: string, password: string) => Promise<{ error: any; needsEmailConfirm?: boolean }>
+  signUp: (
+    email: string,
+    password: string
+  ) => Promise<{ error: any; needsEmailConfirm?: boolean }>
   signOut: () => Promise<void>
   initialize: () => Promise<void>
 }
@@ -28,19 +32,50 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      if (error) console.error('Session error:', error)
+      // Prefer getSession (reads localStorage) then validate lightly
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession()
 
-      set({
-        user: session?.user ?? null,
-        session: session ?? null,
-        loading: false,
-        configured: true,
-      })
+      if (error) {
+        console.error('Session error:', error)
+        // Retry once — transient failures shouldn't log the user out
+        const retry = await supabase.auth.getSession()
+        set({
+          user: retry.data.session?.user ?? null,
+          session: retry.data.session ?? null,
+          loading: false,
+          configured: true,
+        })
+      } else {
+        set({
+          user: session?.user ?? null,
+          session: session ?? null,
+          loading: false,
+          configured: true,
+        })
+      }
 
       if (!authListenerBound) {
         authListenerBound = true
-        supabase.auth.onAuthStateChange((_event, nextSession) => {
+        supabase.auth.onAuthStateChange((event, nextSession) => {
+          // Don't clear UI on transient refresh noise — only update session
+          if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+            set({
+              user: nextSession?.user ?? null,
+              session: nextSession ?? null,
+              loading: false,
+            })
+            return
+          }
+
+          if (event === 'SIGNED_OUT') {
+            supabaseSync.unsubscribe()
+            set({ user: null, session: null, loading: false })
+            return
+          }
+
           set({
             user: nextSession?.user ?? null,
             session: nextSession ?? null,
@@ -50,13 +85,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     } catch (error) {
       console.error('Auth initialization error:', error)
-      set({ loading: false, user: null, session: null })
+      set({ loading: false })
     }
   },
 
-  signIn: async (email: string, password: string) => {
+  signIn: async (email, password) => {
     if (!isSupabaseConfigured()) {
-      return { error: { message: 'Supabase not configured' } }
+      return { error: { message: 'Cloud sync is not available' } }
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -68,23 +103,24 @@ export const useAuthStore = create<AuthState>((set) => ({
     return { error }
   },
 
-  signUp: async (email: string, password: string) => {
+  signUp: async (email, password) => {
     if (!isSupabaseConfigured()) {
-      return { error: { message: 'Supabase not configured' } }
+      return { error: { message: 'Cloud sync is not available' } }
     }
+
+    const redirectTo =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}${import.meta.env.BASE_URL}`
+        : undefined
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo:
-          typeof window !== 'undefined' ? `${window.location.origin}${import.meta.env.BASE_URL}` : undefined,
-      },
+      options: { emailRedirectTo: redirectTo },
     })
 
     if (error) return { error }
 
-    // If email confirmation is required, session is null until verified
     if (data.session) {
       set({ user: data.session.user, session: data.session })
       return { error: null, needsEmailConfirm: false }
@@ -94,11 +130,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       return { error: null, needsEmailConfirm: true }
     }
 
-    return { error: { message: 'Sign up failed' } }
+    return { error: { message: 'Sign up failed. Try again.' } }
   },
 
   signOut: async () => {
     if (!isSupabaseConfigured()) return
+    supabaseSync.unsubscribe()
     await supabase.auth.signOut({ scope: 'local' })
     set({ user: null, session: null })
   },

@@ -8,8 +8,8 @@ export function ThesisNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`rounded-xl px-5 py-4 min-w-[220px] max-w-[300px] text-center transition-all ${
-        selected ? 'ring-2 ring-offset-2 ring-offset-[#100f0e]' : ''
+      className={`group/node rounded-xl px-5 py-4 min-w-[220px] max-w-[300px] text-center transition-all ${
+        selected ? 'selected ring-2 ring-offset-2 ring-offset-[#100f0e]' : ''
       }`}
       style={{
         background: '#1a1917',
@@ -17,14 +17,18 @@ export function ThesisNode({ data, selected }: NodeProps) {
         boxShadow: selected
           ? `0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px ${THESIS_COLOR}33`
           : '0 4px 20px rgba(0,0,0,0.25)',
-        ...(selected ? { '--tw-ring-color': THESIS_COLOR } as React.CSSProperties : {}),
+        ...(selected ? ({ '--tw-ring-color': THESIS_COLOR } as React.CSSProperties) : {}),
       }}
     >
       <NodeSideHandles color={THESIS_COLOR} />
 
       <div
         className="w-10 h-10 mx-auto mb-3 rounded-full flex items-center justify-center text-sm font-display font-semibold"
-        style={{ background: `${THESIS_COLOR}22`, color: THESIS_COLOR, border: `1px solid ${THESIS_COLOR}44` }}
+        style={{
+          background: `${THESIS_COLOR}22`,
+          color: THESIS_COLOR,
+          border: `1px solid ${THESIS_COLOR}44`,
+        }}
       >
         ◎
       </div>
@@ -32,7 +36,9 @@ export function ThesisNode({ data, selected }: NodeProps) {
       <p className="section-label mb-1" style={{ color: THESIS_COLOR }}>
         Main idea
       </p>
-      <h2 className="font-display text-sm font-semibold text-[#f4f1ea] mb-1.5 truncate">{projectName}</h2>
+      <h2 className="font-display text-sm font-semibold text-[#f4f1ea] mb-1.5 truncate">
+        {projectName}
+      </h2>
       <p className="text-xs text-[#9c9590] leading-relaxed line-clamp-3">
         {thesis || 'Click to define your thesis or question...'}
       </p>

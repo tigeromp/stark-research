@@ -60,11 +60,29 @@ function handlesBetween(sourceId: string, targetId: string, nodes: Node[]) {
   const sourceNode = nodes.find((n) => n.id === sourceId)
   const targetNode = nodes.find((n) => n.id === targetId)
   if (!sourceNode || !targetNode) {
-    return { sourceHandle: 's-bottom', targetHandle: 't-top' }
+    return { sourceHandle: 'h-bottom', targetHandle: 'h-top' }
   }
+  const sourceKind = kindFromNodeId(sourceId)
+  const targetKind = kindFromNodeId(targetId)
   return closestSideHandles(
-    nodeCenter(sourceNode.position, kindFromNodeId(sourceId)),
-    nodeCenter(targetNode.position, kindFromNodeId(targetId))
+    nodeCenter(sourceNode.position, sourceKind, {
+      width: sourceNode.measured?.width ?? sourceNode.width,
+      height: sourceNode.measured?.height ?? sourceNode.height,
+    }),
+    nodeCenter(targetNode.position, targetKind, {
+      width: targetNode.measured?.width ?? targetNode.width,
+      height: targetNode.measured?.height ?? targetNode.height,
+    }),
+    sourceKind,
+    targetKind,
+    {
+      width: sourceNode.measured?.width ?? sourceNode.width,
+      height: sourceNode.measured?.height ?? sourceNode.height,
+    },
+    {
+      width: targetNode.measured?.width ?? targetNode.width,
+      height: targetNode.measured?.height ?? targetNode.height,
+    }
   )
 }
 
@@ -77,7 +95,7 @@ function buildGraph(
   selectedCitationId: string | null,
   selectedCategoryId: string | null,
   thesisSelected: boolean,
-  animateEdges: boolean
+  _animateEdges: boolean
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
@@ -141,7 +159,7 @@ function buildGraph(
         targetHandle,
         type: 'deletable',
         style: { stroke: category.color, strokeWidth: 2, opacity: 0.85 },
-        animated: animateEdges,
+        animated: false,
         deletable: true,
         data: { deletable: true },
       })
@@ -176,6 +194,17 @@ function buildGraph(
       if (otherCat?.parentId) return
     }
 
+    // Skip parent↔child duplicates (rendered as hierarchy edges below)
+    const srcCat = categories.find((c) => `category-${c.id}` === conn.source)
+    const tgtCat = categories.find((c) => `category-${c.id}` === conn.target)
+    if (
+      srcCat &&
+      tgtCat &&
+      (srcCat.parentId === tgtCat.id || tgtCat.parentId === srcCat.id)
+    ) {
+      return
+    }
+
     const { sourceHandle, targetHandle } = handlesBetween(conn.source, conn.target, nodes)
 
     edges.push({
@@ -195,7 +224,7 @@ function buildGraph(
         strokeWidth: 2.5,
         opacity: 0.85,
       },
-      animated: animateEdges,
+      animated: false,
       deletable: true,
       data: { deletable: true },
     })
@@ -380,7 +409,7 @@ function MindMapCanvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
-        connectionLineType={ConnectionLineType.Bezier}
+        connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: '#d4644a', strokeWidth: 2 }}
         connectionMode={ConnectionMode.Loose}
         snapToGrid={false}

@@ -1,7 +1,7 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  getSmoothStepPath,
   type EdgeProps,
 } from '@xyflow/react'
 import { Unlink } from 'lucide-react'
@@ -23,14 +23,17 @@ export function DeletableEdge({
   data,
 }: EdgeProps) {
   const handleMapDisconnect = useResearchStore((s) => s.handleMapDisconnect)
-  const [path, labelX, labelY] = getBezierPath({
+
+  const dist = Math.hypot(targetX - sourceX, targetY - sourceY)
+  const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
     sourcePosition,
     targetPosition,
-    curvature: 0.35,
+    borderRadius: 12,
+    offset: Math.min(28, Math.max(8, dist * 0.08)),
   })
 
   const deletable = data?.deletable !== false

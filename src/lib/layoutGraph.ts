@@ -177,17 +177,48 @@ function sourcesAroundAngle(
   })
 }
 
+/** Place sources in a tight cluster next to their owning category node */
+function sourcesNearCategory(
+  citations: Citation[],
+  categoryNode: LayoutNode
+): LayoutNode[] {
+  const count = citations.length
+  if (count === 0) return []
+
+  const outwardAngle = Math.atan2(categoryNode.y - THESIS.y, categoryNode.x - THESIS.x)
+  const baseDist = categoryNode.radius + SOURCE_NODE_RADIUS + 70
+
+  return citations.map((citation, i) => {
+    const col = i % 3
+    const row = Math.floor(i / 3)
+    const lateral = (col - 1) * 130
+    const radial = baseDist + row * 110
+    const cx = Math.cos(outwardAngle)
+    const sy = Math.sin(outwardAngle)
+    // Perpendicular for lateral spread
+    const px = -sy
+    const py = cx
+    return {
+      id: citation.id,
+      x: round(categoryNode.x + cx * radial + px * lateral),
+      y: round(categoryNode.y + sy * radial + py * lateral),
+      radius: SOURCE_NODE_RADIUS,
+    }
+  })
+}
+
 function layoutCitationsOnOuterRing(
   citations: Citation[],
   categories: Category[],
   categoryNodes: LayoutNode[]
 ): LayoutNode[] {
-  const categoryCount = Math.max(categories.filter((c) => !c.parentId).length, categories.length, 1)
+  const categoryCount = Math.max(categories.filter((c) => !c.parentId).length, 1)
   const nodes: LayoutNode[] = []
   const placed = new Set<string>()
+  const nodeById = new Map(categoryNodes.map((n) => [n.id, n]))
 
   const angleForCategory = (categoryId: string): number => {
-    const node = categoryNodes.find((n) => n.id === categoryId)
+    const node = nodeById.get(categoryId)
     if (node) return Math.atan2(node.y - THESIS.y, node.x - THESIS.x)
     return -Math.PI / 2
   }
@@ -203,7 +234,11 @@ function layoutCitationsOnOuterRing(
   })
 
   byCategory.forEach((group, categoryId) => {
-    sourcesAroundAngle(group, angleForCategory(categoryId), categoryCount).forEach((n) => {
+    const catNode = nodeById.get(categoryId)
+    const placedGroup = catNode
+      ? sourcesNearCategory(group, catNode)
+      : sourcesAroundAngle(group, angleForCategory(categoryId), categoryCount)
+    placedGroup.forEach((n) => {
       nodes.push(n)
       placed.add(n.id)
     })
@@ -305,8 +340,8 @@ function repelFromProtectedZones(nodes: LayoutNode[]) {
   }
 }
 
-/** Push every source outside the topic ring band */
-function pushOutsideTopicRing(
+/** Push every source outside the topic ring band (kept for optional layouts) */
+export function pushOutsideTopicRing(
   citationNodes: LayoutNode[],
   categoryCount: number
 ) {
@@ -384,17 +419,14 @@ export function organizeLayout(
   _connections: MapConnection[] = []
 ): OrganizedLayout {
   const categoryNodes = layoutCategoriesInRing(categories)
-  const categoryCount = categories.length
 
   let citationNodes = layoutCitationsOnOuterRing(citations, categories, categoryNodes)
-  pushOutsideTopicRing(citationNodes, categoryCount)
+  // Soft separation only — do not yank sources off their owning topic cluster
   repelCitationsFromTopics(citationNodes, categoryNodes)
-  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 100)
-  pushOutsideTopicRing(citationNodes, categoryCount)
+  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 80)
   repelCitationsFromTopics(citationNodes, categoryNodes)
-  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 50)
-  pushOutsideTopicRing(citationNodes, categoryCount)
-  repelCitationsFromTopics(citationNodes, categoryNodes)
+  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 40)
+  repelFromProtectedZones(citationNodes)
 
   const categoryPositions: Record<string, { x: number; y: number }> = {}
   const citationPositions: Record<string, { x: number; y: number }> = {}

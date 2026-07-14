@@ -8,8 +8,8 @@ export function CitationNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`min-w-[170px] max-w-[220px] rounded-lg px-3 py-2.5 transition-all ${
-        selected ? 'ring-2 ring-white/20' : ''
+      className={`group/node min-w-[170px] max-w-[220px] rounded-lg px-3 py-2.5 transition-all ${
+        selected ? 'selected ring-2 ring-white/20' : ''
       }`}
       style={{
         background: '#1a1917',
