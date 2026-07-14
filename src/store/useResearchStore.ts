@@ -13,6 +13,8 @@ import {
   connectionExists,
 } from '../lib/graphUtils'
 import { createDefaultOutline, sortOutlineSections } from '../lib/outline'
+import { supabaseSync } from '../lib/supabaseSync'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 interface ResearchState {
   project: ResearchProject
@@ -24,7 +26,12 @@ interface ResearchState {
   activePanel: 'citations' | 'outline' | 'works-cited' | 'export' | 'papers'
   sourceInputOpen: boolean
   selectedOutlineSectionId: string | null
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'error'
+  lastSyncTime: number | null
 
+  initializeSync: (userId: string) => Promise<void>
+  syncToCloud: () => Promise<void>
+  loadFromCloud: () => Promise<void>
   createPaper: (name?: string) => string
   switchPaper: (id: string) => void
   deletePaper: (id: string) => boolean
@@ -100,6 +107,17 @@ function syncProject(
   }
 }
 
+// Debounced sync helper
+let syncTimeout: ReturnType<typeof setTimeout> | null = null
+function scheduleSyncToCloud(get: () => ResearchState) {
+  if (!isSupabaseConfigured()) return
+  
+  if (syncTimeout) clearTimeout(syncTimeout)
+  syncTimeout = setTimeout(() => {
+    get().syncToCloud()
+  }, 2000) // Sync 2 seconds after last change
+}
+
 const clearMapUi = {
   selectedCitationId: null as string | null,
   selectedCategoryId: null as string | null,
@@ -141,6 +159,65 @@ export const useResearchStore = create<ResearchState>()(
       activePanel: 'citations',
       sourceInputOpen: false,
       selectedOutlineSectionId: null,
+      syncStatus: 'idle',
+      lastSyncTime: null,
+
+      initializeSync: async (userId: string) => {
+        if (!isSupabaseConfigured()) return
+
+        const initialized = await supabaseSync.initialize(userId)
+        if (!initialized) return
+
+        // Load data from cloud
+        await get().loadFromCloud()
+
+        // Subscribe to real-time changes
+        supabaseSync.subscribeToChanges(
+          (payload) => {
+            // Handle project changes from other devices
+            console.log('Project changed:', payload)
+            get().loadFromCloud()
+          },
+          (payload) => {
+            // Handle citation changes from other devices
+            console.log('Citation changed:', payload)
+            get().loadFromCloud()
+          }
+        )
+      },
+
+      syncToCloud: async () => {
+        if (!isSupabaseConfigured()) return
+
+        set({ syncStatus: 'syncing' })
+        try {
+          await supabaseSync.syncProjects(get().projects)
+          set({ syncStatus: 'synced', lastSyncTime: Date.now() })
+        } catch (error) {
+          console.error('Sync error:', error)
+          set({ syncStatus: 'error' })
+        }
+      },
+
+      loadFromCloud: async () => {
+        if (!isSupabaseConfigured()) return
+
+        try {
+          const cloudProjects = await supabaseSync.loadProjects()
+          if (cloudProjects.length > 0) {
+            const activeProject =
+              cloudProjects.find((p) => p.id === get().activeProjectId) || cloudProjects[0]
+            set({
+              projects: cloudProjects,
+              project: activeProject,
+              activeProjectId: activeProject.id,
+              lastSyncTime: Date.now(),
+            })
+          }
+        } catch (error) {
+          console.error('Load from cloud error:', error)
+        }
+      },
 
       createPaper: (name = 'Untitled Research') => {
         const paper = createDefaultProject()
@@ -151,6 +228,7 @@ export const useResearchStore = create<ResearchState>()(
           project: paper,
           ...clearMapUi,
         })
+        scheduleSyncToCloud(get)
         return paper.id
       },
 
@@ -169,6 +247,12 @@ export const useResearchStore = create<ResearchState>()(
         if (projects.length <= 1) return false
         const remaining = projects.filter((p) => p.id !== id)
         if (remaining.length === projects.length) return false
+        
+        // Delete from Supabase
+        if (isSupabaseConfigured()) {
+          supabaseSync.deleteProject(id)
+        }
+        
         if (id === activeProjectId) {
           const next = remaining[0]
           set({
@@ -180,6 +264,7 @@ export const useResearchStore = create<ResearchState>()(
         } else {
           set({ projects: remaining })
         }
+        scheduleSyncToCloud(get)
         return true
       },
 
@@ -198,21 +283,25 @@ export const useResearchStore = create<ResearchState>()(
         })
       },
 
-      setThesis: (thesis) =>
+      setThesis: (thesis) => {
         set((state) =>
           syncProject(state, { ...state.project, thesis, updatedAt: Date.now() })
-        ),
+        )
+        scheduleSyncToCloud(get)
+      },
 
-      setProjectName: (name) =>
+      setProjectName: (name) => {
         set((state) => {
           const project = { ...state.project, name, updatedAt: Date.now() }
           return syncProject(state, project)
-        }),
+        })
+        scheduleSyncToCloud(get)
+      },
 
       toggleSourceInput: () => set((s) => ({ sourceInputOpen: !s.sourceInputOpen })),
       setSourceInputOpen: (sourceInputOpen) => set({ sourceInputOpen }),
 
-      addCitation: (data, categoryIds = []) =>
+      addCitation: (data, categoryIds = []) => {
         set((state) => {
           const citation = createCitationFromForm(data, categoryIds)
           return {
@@ -224,7 +313,9 @@ export const useResearchStore = create<ResearchState>()(
             selectedCitationId: citation.id,
             thesisSelected: false,
           }
-        }),
+        })
+        scheduleSyncToCloud(get)
+      },
 
       importBibliography: (entries) => {
         const citations = entries.map((data) => createCitationFromForm(data, []))
@@ -237,6 +328,7 @@ export const useResearchStore = create<ResearchState>()(
           selectedCitationId: citations[citations.length - 1]?.id ?? state.selectedCitationId,
           thesisSelected: false,
         }))
+        scheduleSyncToCloud(get)
         return citations.length
       },
 
@@ -261,7 +353,12 @@ export const useResearchStore = create<ResearchState>()(
           })
         }),
 
-      removeCitation: (id) =>
+      removeCitation: (id) => {
+        // Delete from Supabase
+        if (isSupabaseConfigured()) {
+          supabaseSync.deleteCitation(id)
+        }
+        
         set((state) => ({
           ...syncProject(state, {
             ...state.project,
@@ -277,7 +374,9 @@ export const useResearchStore = create<ResearchState>()(
           }),
           selectedCitationId:
             state.selectedCitationId === id ? null : state.selectedCitationId,
-        })),
+        }))
+        scheduleSyncToCloud(get)
+      },
 
       linkCitationToCategory: (citationId, categoryId) =>
         set((state) =>

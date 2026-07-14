@@ -1,11 +1,19 @@
-import { BookOpen, FileText, Download, PanelLeft, ListTree, Layers, Library } from 'lucide-react'
+import { BookOpen, FileText, Download, PanelLeft, ListTree, Layers, Library, Cloud, CloudOff, User } from 'lucide-react'
 import { useResearchStore } from '../store/useResearchStore'
 import { useSettingsStore } from '../store/useSettingsStore'
+import { useAuthStore } from '../store/useAuthStore'
+import { isSupabaseConfigured } from '../lib/supabase'
 
-export function Header() {
-  const { project, activePanel, setActivePanel, projects } = useResearchStore()
+interface HeaderProps {
+  onAuthClick: () => void
+}
+
+export function Header({ onAuthClick }: HeaderProps) {
+  const { project, activePanel, setActivePanel, projects, syncStatus } = useResearchStore()
   const { sidebarOpen, toggleSidebar } = useSettingsStore()
+  const { user } = useAuthStore()
   const citationCount = project.citations.length
+  const configured = isSupabaseConfigured()
 
   const tabs = [
     { id: 'citations' as const, label: 'Mind Map', icon: BookOpen },
@@ -66,8 +74,40 @@ export function Header() {
         ))}
       </nav>
 
-      <div className="text-xs text-[#9c9590] tabular-nums flex-shrink-0 hidden sm:block">
-        {citationCount} source{citationCount !== 1 ? 's' : ''}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="text-xs text-[#9c9590] tabular-nums hidden sm:block">
+          {citationCount} source{citationCount !== 1 ? 's' : ''}
+        </div>
+
+        {configured && (
+          <button
+            onClick={onAuthClick}
+            className="p-2 rounded-lg transition-colors flex items-center gap-2 text-xs"
+            title={user ? `Signed in as ${user.email}` : 'Sign in to sync'}
+          >
+            {user ? (
+              <>
+                <Cloud size={16} className={syncStatus === 'syncing' ? 'text-arc-400 animate-pulse' : 'text-arc-400'} />
+                <span className="hidden md:inline text-[#9c9590]">
+                  {syncStatus === 'syncing' ? 'Syncing...' : 'Synced'}
+                </span>
+              </>
+            ) : (
+              <>
+                <CloudOff size={16} className="text-[#9c9590]" />
+                <span className="hidden md:inline text-[#9c9590]">Offline</span>
+              </>
+            )}
+          </button>
+        )}
+
+        <button
+          onClick={onAuthClick}
+          className="p-2 rounded-lg text-[#9c9590] hover:text-[#f4f1ea] hover:bg-white/[0.04] transition-colors hidden sm:block"
+          title={user ? 'Account' : 'Sign in'}
+        >
+          <User size={18} />
+        </button>
       </div>
     </header>
   )
