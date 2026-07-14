@@ -73,12 +73,12 @@ function getClosestHandles(
   // Determine optimal handles based on relative positions
   if (Math.abs(dx) > Math.abs(dy)) {
     // Horizontal connection is dominant
-    sourceHandle = dx > 0 ? 'right' : 'left'
-    targetHandle = dx > 0 ? 'left' : 'right'
+    sourceHandle = dx > 0 ? 'out-right' : 'in-left'
+    targetHandle = dx > 0 ? 'in-left' : 'out-right'
   } else {
     // Vertical connection is dominant
-    sourceHandle = dy > 0 ? 'bottom' : 'top'
-    targetHandle = dy > 0 ? 'top' : 'bottom'
+    sourceHandle = dy > 0 ? 'out' : 'in'
+    targetHandle = dy > 0 ? 'in' : 'out'
   }
 
   return { sourceHandle, targetHandle }
