@@ -115,27 +115,55 @@ function bestUnassignedAngle(categoryNodes: LayoutNode[], categoryCount: number)
 }
 
 function layoutCategoriesInRing(categories: Category[]): LayoutNode[] {
-  const count = categories.length
-  if (count === 0) return []
+  const topLevel = categories.filter((c) => !c.parentId)
+  const subLevel = categories.filter((c) => c.parentId)
+  if (topLevel.length === 0 && subLevel.length === 0) return []
 
+  const count = Math.max(topLevel.length, 1)
   const radius = categoryOrbitRadius(count)
+  const nodes: LayoutNode[] = []
+  const angleById = new Map<string, number>()
 
-  return categories.map((cat, i) => {
-    const pos = positionOnRing(radius, categoryRingAngle(i, count))
-    return { id: cat.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS }
+  topLevel.forEach((cat, i) => {
+    const angle = categoryRingAngle(i, count)
+    angleById.set(cat.id, angle)
+    const pos = positionOnRing(radius, angle)
+    nodes.push({ id: cat.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS })
   })
+
+  // Place each subtopic next to its parent (slightly further out)
+  const byParent = new Map<string, Category[]>()
+  subLevel.forEach((sub) => {
+    const pid = sub.parentId!
+    if (!byParent.has(pid)) byParent.set(pid, [])
+    byParent.get(pid)!.push(sub)
+  })
+
+  byParent.forEach((subs, parentId) => {
+    const parentAngle = angleById.get(parentId) ?? -Math.PI / 2
+    const subRadius = radius + 190
+    const spread = subs.length === 1 ? 0 : Math.min(subs.length * 0.22, 0.75)
+
+    subs.forEach((sub, i) => {
+      const offset = subs.length === 1 ? 0 : (i / (subs.length - 1) - 0.5) * spread
+      const angle = parentAngle + offset
+      angleById.set(sub.id, angle)
+      const pos = positionOnRing(subRadius, angle)
+      nodes.push({ id: sub.id, x: pos.x, y: pos.y, radius: TOPIC_NODE_RADIUS })
+    })
+  })
+
+  return nodes
 }
 
-function sourcesAroundTopic(
+function sourcesAroundAngle(
   citations: Citation[],
-  topicIndex: number,
-  topicCount: number,
+  baseAngle: number,
   categoryCount: number
 ): LayoutNode[] {
   const count = citations.length
   if (count === 0) return []
 
-  const baseAngle = categoryRingAngle(topicIndex, topicCount)
   const spread = count === 1 ? 0 : Math.min(count * 0.14, 0.75)
 
   return citations.map((citation, i) => {
@@ -149,16 +177,51 @@ function sourcesAroundTopic(
   })
 }
 
+/** Place sources in a tight cluster next to their owning category node */
+function sourcesNearCategory(
+  citations: Citation[],
+  categoryNode: LayoutNode
+): LayoutNode[] {
+  const count = citations.length
+  if (count === 0) return []
+
+  const outwardAngle = Math.atan2(categoryNode.y - THESIS.y, categoryNode.x - THESIS.x)
+  const baseDist = categoryNode.radius + SOURCE_NODE_RADIUS + 70
+
+  return citations.map((citation, i) => {
+    const col = i % 3
+    const row = Math.floor(i / 3)
+    const lateral = (col - 1) * 130
+    const radial = baseDist + row * 110
+    const cx = Math.cos(outwardAngle)
+    const sy = Math.sin(outwardAngle)
+    // Perpendicular for lateral spread
+    const px = -sy
+    const py = cx
+    return {
+      id: citation.id,
+      x: round(categoryNode.x + cx * radial + px * lateral),
+      y: round(categoryNode.y + sy * radial + py * lateral),
+      radius: SOURCE_NODE_RADIUS,
+    }
+  })
+}
+
 function layoutCitationsOnOuterRing(
   citations: Citation[],
   categories: Category[],
   categoryNodes: LayoutNode[]
 ): LayoutNode[] {
-  const topicCount = categories.length
-  const categoryCount = topicCount
-  const topicIndex = new Map(categories.map((c, i) => [c.id, i]))
+  const categoryCount = Math.max(categories.filter((c) => !c.parentId).length, 1)
   const nodes: LayoutNode[] = []
   const placed = new Set<string>()
+  const nodeById = new Map(categoryNodes.map((n) => [n.id, n]))
+
+  const angleForCategory = (categoryId: string): number => {
+    const node = nodeById.get(categoryId)
+    if (node) return Math.atan2(node.y - THESIS.y, node.x - THESIS.x)
+    return -Math.PI / 2
+  }
 
   const singleTopic = citations.filter((c) => c.categoryIds.length === 1)
   const multiTopic = citations.filter((c) => c.categoryIds.length > 1)
@@ -171,9 +234,11 @@ function layoutCitationsOnOuterRing(
   })
 
   byCategory.forEach((group, categoryId) => {
-    const idx = topicIndex.get(categoryId)
-    if (idx === undefined) return
-    sourcesAroundTopic(group, idx, topicCount, categoryCount).forEach((n) => {
+    const catNode = nodeById.get(categoryId)
+    const placedGroup = catNode
+      ? sourcesNearCategory(group, catNode)
+      : sourcesAroundAngle(group, angleForCategory(categoryId), categoryCount)
+    placedGroup.forEach((n) => {
       nodes.push(n)
       placed.add(n.id)
     })
@@ -187,11 +252,7 @@ function layoutCitationsOnOuterRing(
   })
 
   midpointGroups.forEach((group) => {
-    const angles = group[0].categoryIds
-      .map((id) => topicIndex.get(id))
-      .filter((idx): idx is number => idx !== undefined)
-      .map((idx) => categoryRingAngle(idx, topicCount))
-
+    const angles = group[0].categoryIds.map((id) => angleForCategory(id))
     const baseAngle = averageAngle(angles)
     const count = group.length
     const spread = count === 1 ? 0 : Math.min(count * 0.12, 0.55)
@@ -279,8 +340,8 @@ function repelFromProtectedZones(nodes: LayoutNode[]) {
   }
 }
 
-/** Push every source outside the topic ring band */
-function pushOutsideTopicRing(
+/** Push every source outside the topic ring band (kept for optional layouts) */
+export function pushOutsideTopicRing(
   citationNodes: LayoutNode[],
   categoryCount: number
 ) {
@@ -358,17 +419,14 @@ export function organizeLayout(
   _connections: MapConnection[] = []
 ): OrganizedLayout {
   const categoryNodes = layoutCategoriesInRing(categories)
-  const categoryCount = categories.length
 
   let citationNodes = layoutCitationsOnOuterRing(citations, categories, categoryNodes)
-  pushOutsideTopicRing(citationNodes, categoryCount)
+  // Soft separation only — do not yank sources off their owning topic cluster
   repelCitationsFromTopics(citationNodes, categoryNodes)
-  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 100)
-  pushOutsideTopicRing(citationNodes, categoryCount)
+  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 80)
   repelCitationsFromTopics(citationNodes, categoryNodes)
-  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 50)
-  pushOutsideTopicRing(citationNodes, categoryCount)
-  repelCitationsFromTopics(citationNodes, categoryNodes)
+  citationNodes = resolveCitationCollisions(citationNodes, MIN_CITATION_GAP, 40)
+  repelFromProtectedZones(citationNodes)
 
   const categoryPositions: Record<string, { x: number; y: number }> = {}
   const citationPositions: Record<string, { x: number; y: number }> = {}

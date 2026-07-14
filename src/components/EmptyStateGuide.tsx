@@ -1,4 +1,5 @@
-import { BookOpen, Upload, Map, FileText, Tags } from 'lucide-react'
+import { useState } from 'react'
+import { BookOpen, Upload, Map, FileText, Tags, X } from 'lucide-react'
 
 const steps = [
   { icon: Map, title: 'Set your thesis', desc: 'Click the center node on the mind map' },
@@ -9,12 +10,25 @@ const steps = [
 ]
 
 export function EmptyStateGuide() {
+  const [dismissed, setDismissed] = useState(false)
+
+  if (dismissed) return null
+
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-      <div className="glass-panel rounded-2xl p-8 max-w-md animate-fade-in-up shadow-xl">
-        <h2 className="font-display text-xl font-semibold text-[#f4f1ea] mb-1">
-          Start your research
-        </h2>
+      <div className="glass-panel rounded-2xl p-8 max-w-md animate-fade-in-up shadow-xl pointer-events-auto">
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="font-display text-xl font-semibold text-[#f4f1ea]">
+            Start your research
+          </h2>
+          <button
+            onClick={() => setDismissed(true)}
+            className="p-1 rounded-lg text-[#9c9590] hover:text-[#f4f1ea] hover:bg-white/[0.04] transition-colors -mr-1 -mt-1"
+            aria-label="Close guide"
+          >
+            <X size={20} />
+          </button>
+        </div>
         <p className="text-sm text-[#9c9590] mb-6">
           Map sources, build an outline, and export your works cited.
         </p>
@@ -34,6 +48,12 @@ export function EmptyStateGuide() {
             </div>
           ))}
         </div>
+        <button
+          onClick={() => setDismissed(true)}
+          className="hud-button-primary w-full mt-6 py-2"
+        >
+          Got it
+        </button>
       </div>
     </div>
   )

@@ -13,6 +13,9 @@ import {
   connectionExists,
 } from '../lib/graphUtils'
 import { createDefaultOutline, sortOutlineSections } from '../lib/outline'
+import { supabaseSync } from '../lib/supabaseSync'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { useAuthStore } from './useAuthStore'
 
 interface ResearchState {
   project: ResearchProject
@@ -24,7 +27,12 @@ interface ResearchState {
   activePanel: 'citations' | 'outline' | 'works-cited' | 'export' | 'papers'
   sourceInputOpen: boolean
   selectedOutlineSectionId: string | null
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'error'
+  lastSyncTime: number | null
 
+  initializeSync: (userId: string) => Promise<void>
+  syncToCloud: () => Promise<void>
+  loadFromCloud: () => Promise<void>
   createPaper: (name?: string) => string
   switchPaper: (id: string) => void
   deletePaper: (id: string) => boolean
@@ -52,7 +60,7 @@ interface ResearchState {
   moveOutlineSection: (id: string, direction: 'up' | 'down') => void
   toggleOutlineCitation: (sectionId: string, citationId: string) => void
   linkCategoryToOutlineSection: (sectionId: string, categoryId: string) => void
-  addCategory: (label: string, options?: { keywords?: string[]; isSuggested?: boolean; connectToThesis?: boolean }) => Category
+  addCategory: (label: string, options?: { keywords?: string[]; isSuggested?: boolean; connectToThesis?: boolean; parentId?: string }) => Category
   removeCategory: (id: string) => void
   updateCategory: (id: string, data: Partial<Category>) => void
   updateCategoryPosition: (id: string, position: { x: number; y: number }) => void
@@ -100,6 +108,17 @@ function syncProject(
   }
 }
 
+// Debounced sync helper
+let syncTimeout: ReturnType<typeof setTimeout> | null = null
+function scheduleSyncToCloud(get: () => ResearchState) {
+  if (!isSupabaseConfigured()) return
+  
+  if (syncTimeout) clearTimeout(syncTimeout)
+  syncTimeout = setTimeout(() => {
+    get().syncToCloud()
+  }, 2000) // Sync 2 seconds after last change
+}
+
 const clearMapUi = {
   selectedCitationId: null as string | null,
   selectedCategoryId: null as string | null,
@@ -141,6 +160,85 @@ export const useResearchStore = create<ResearchState>()(
       activePanel: 'citations',
       sourceInputOpen: false,
       selectedOutlineSectionId: null,
+      syncStatus: 'idle',
+      lastSyncTime: null,
+
+      initializeSync: async (userId: string) => {
+        if (!isSupabaseConfigured()) return
+
+        const initialized = await supabaseSync.initialize(userId)
+        if (!initialized) return
+
+        // Load cloud first, merge with local, then upload winners (never clobber cloud with empty local)
+        await get().loadFromCloud()
+        await get().syncToCloud()
+
+        let reloadTimer: ReturnType<typeof setTimeout> | null = null
+        supabaseSync.subscribeToChanges(() => {
+          if (reloadTimer) clearTimeout(reloadTimer)
+          reloadTimer = setTimeout(() => {
+            get().loadFromCloud()
+          }, 600)
+        })
+      },
+
+      syncToCloud: async () => {
+        if (!isSupabaseConfigured()) return
+        if (!useAuthStore.getState().user) return
+
+        set({ syncStatus: 'syncing' })
+        try {
+          const { error } = await supabaseSync.syncProjects(get().projects)
+          if (error) throw error
+          set({ syncStatus: 'synced', lastSyncTime: Date.now() })
+        } catch (error) {
+          console.error('Sync error:', error)
+          set({ syncStatus: 'error' })
+        }
+      },
+
+      loadFromCloud: async () => {
+        if (!isSupabaseConfigured()) return
+
+        try {
+          const cloudProjects = await supabaseSync.loadProjects()
+          const localProjects = get().projects
+
+          if (cloudProjects.length === 0) {
+            // Nothing in cloud yet — keep local
+            return
+          }
+
+          const localById = new Map(localProjects.map((p) => [p.id, p]))
+          const merged = cloudProjects.map((cloud) => {
+            const local = localById.get(cloud.id)
+            if (!local) return cloud
+            // Prefer newer; on tie prefer the richer local map (more categories/citations)
+            if (cloud.updatedAt > local.updatedAt) return cloud
+            if (local.updatedAt > cloud.updatedAt) return local
+            const localScore = local.citations.length + local.categories.length
+            const cloudScore = cloud.citations.length + cloud.categories.length
+            return localScore >= cloudScore ? local : cloud
+          })
+
+          localProjects.forEach((local) => {
+            if (!merged.find((p) => p.id === local.id)) merged.push(local)
+          })
+
+          const activeProject =
+            merged.find((p) => p.id === get().activeProjectId) || merged[0]
+
+          set({
+            projects: merged,
+            project: activeProject,
+            activeProjectId: activeProject.id,
+            lastSyncTime: Date.now(),
+            syncStatus: 'synced',
+          })
+        } catch (error) {
+          console.error('Load from cloud error:', error)
+        }
+      },
 
       createPaper: (name = 'Untitled Research') => {
         const paper = createDefaultProject()
@@ -151,6 +249,7 @@ export const useResearchStore = create<ResearchState>()(
           project: paper,
           ...clearMapUi,
         })
+        scheduleSyncToCloud(get)
         return paper.id
       },
 
@@ -169,6 +268,12 @@ export const useResearchStore = create<ResearchState>()(
         if (projects.length <= 1) return false
         const remaining = projects.filter((p) => p.id !== id)
         if (remaining.length === projects.length) return false
+        
+        // Delete from Supabase
+        if (isSupabaseConfigured()) {
+          supabaseSync.deleteProject(id)
+        }
+        
         if (id === activeProjectId) {
           const next = remaining[0]
           set({
@@ -180,6 +285,7 @@ export const useResearchStore = create<ResearchState>()(
         } else {
           set({ projects: remaining })
         }
+        scheduleSyncToCloud(get)
         return true
       },
 
@@ -198,21 +304,25 @@ export const useResearchStore = create<ResearchState>()(
         })
       },
 
-      setThesis: (thesis) =>
+      setThesis: (thesis) => {
         set((state) =>
           syncProject(state, { ...state.project, thesis, updatedAt: Date.now() })
-        ),
+        )
+        scheduleSyncToCloud(get)
+      },
 
-      setProjectName: (name) =>
+      setProjectName: (name) => {
         set((state) => {
           const project = { ...state.project, name, updatedAt: Date.now() }
           return syncProject(state, project)
-        }),
+        })
+        scheduleSyncToCloud(get)
+      },
 
       toggleSourceInput: () => set((s) => ({ sourceInputOpen: !s.sourceInputOpen })),
       setSourceInputOpen: (sourceInputOpen) => set({ sourceInputOpen }),
 
-      addCitation: (data, categoryIds = []) =>
+      addCitation: (data, categoryIds = []) => {
         set((state) => {
           const citation = createCitationFromForm(data, categoryIds)
           return {
@@ -224,7 +334,9 @@ export const useResearchStore = create<ResearchState>()(
             selectedCitationId: citation.id,
             thesisSelected: false,
           }
-        }),
+        })
+        scheduleSyncToCloud(get)
+      },
 
       importBibliography: (entries) => {
         const citations = entries.map((data) => createCitationFromForm(data, []))
@@ -237,6 +349,7 @@ export const useResearchStore = create<ResearchState>()(
           selectedCitationId: citations[citations.length - 1]?.id ?? state.selectedCitationId,
           thesisSelected: false,
         }))
+        scheduleSyncToCloud(get)
         return citations.length
       },
 
@@ -261,7 +374,7 @@ export const useResearchStore = create<ResearchState>()(
           })
         }),
 
-      removeCitation: (id) =>
+      removeCitation: (id) => {
         set((state) => ({
           ...syncProject(state, {
             ...state.project,
@@ -277,7 +390,9 @@ export const useResearchStore = create<ResearchState>()(
           }),
           selectedCitationId:
             state.selectedCitationId === id ? null : state.selectedCitationId,
-        })),
+        }))
+        scheduleSyncToCloud(get)
+      },
 
       linkCitationToCategory: (citationId, categoryId) =>
         set((state) =>
@@ -440,24 +555,32 @@ export const useResearchStore = create<ResearchState>()(
           {
             keywords: options.keywords ?? [label.toLowerCase()],
             isSuggested: options.isSuggested ?? false,
+            parentId: options.parentId ?? null,
           }
         )
 
         const connections = [...state.project.connections]
-        if (options.connectToThesis !== false) {
+        const isSubtopic = Boolean(options.parentId)
+        // Top-level topics connect to main idea; subtopics connect only to their parent on the map
+        if (options.connectToThesis !== false && !isSubtopic) {
           connections.push({
             id: uuidv4(),
             source: 'thesis-center',
             target: `category-${category.id}`,
-            sourceHandle: 'out',
-            targetHandle: 'in',
+            sourceHandle: 'h-bottom',
+            targetHandle: 'h-top',
           })
         }
 
         const citations = state.project.citations.map((c) => {
           const matches = category.keywords.some((kw) => citationMatchesKeyword(c, kw))
           if (!matches || citationInCategory(c, category.id)) return c
-          return { ...c, categoryIds: [...c.categoryIds, category.id] }
+          // Prefer leaf assignment: if linking to a subtopic, drop parent id for that branch
+          let nextIds = [...c.categoryIds, category.id]
+          if (options.parentId) {
+            nextIds = nextIds.filter((id) => id !== options.parentId)
+          }
+          return { ...c, categoryIds: [...new Set(nextIds)] }
         })
 
         set((state) => ({
@@ -471,27 +594,47 @@ export const useResearchStore = create<ResearchState>()(
           selectedCategoryId: category.id,
           thesisSelected: false,
         }))
+        scheduleSyncToCloud(get)
 
         return category
       },
 
-      removeCategory: (id) =>
-        set((state) => ({
-          ...syncProject(state, {
-            ...state.project,
-            categories: state.project.categories.filter((c) => c.id !== id),
-            connections: state.project.connections.filter(
-              (c) => c.source !== `category-${id}` && c.target !== `category-${id}`
-            ),
-            citations: state.project.citations.map((c) => ({
-              ...c,
-              categoryIds: c.categoryIds.filter((cid) => cid !== id),
-            })),
-            updatedAt: Date.now(),
-          }),
-          selectedCategoryId:
-            state.selectedCategoryId === id ? null : state.selectedCategoryId,
-        })),
+      removeCategory: (id) => {
+        set((state) => {
+          const toRemove = new Set<string>()
+          const walk = (cid: string) => {
+            toRemove.add(cid)
+            state.project.categories
+              .filter((c) => c.parentId === cid)
+              .forEach((c) => walk(c.id))
+          }
+          walk(id)
+
+          return {
+            ...syncProject(state, {
+              ...state.project,
+              categories: state.project.categories.filter((c) => !toRemove.has(c.id)),
+              connections: state.project.connections.filter(
+                (c) =>
+                  !Array.from(toRemove).some(
+                    (rid) =>
+                      c.source === `category-${rid}` || c.target === `category-${rid}`
+                  )
+              ),
+              citations: state.project.citations.map((c) => ({
+                ...c,
+                categoryIds: c.categoryIds.filter((cid) => !toRemove.has(cid)),
+              })),
+              updatedAt: Date.now(),
+            }),
+            selectedCategoryId:
+              state.selectedCategoryId && toRemove.has(state.selectedCategoryId)
+                ? null
+                : state.selectedCategoryId,
+          }
+        })
+        scheduleSyncToCloud(get)
+      },
 
       updateCategory: (id, data) =>
         set((state) =>
@@ -553,10 +696,26 @@ export const useResearchStore = create<ResearchState>()(
         const assignment = parseCategoryCitationLink(source, target)
         if (assignment) {
           get().linkCitationToCategory(assignment.citationId, assignment.categoryId)
+          scheduleSyncToCloud(get)
           return
         }
 
         if (!isStructuralConnection(source, target)) return
+
+        const cats = get().project.categories
+        const srcId = source.replace('category-', '')
+        const tgtId = target.replace('category-', '')
+        const srcCat = cats.find((c) => c.id === srcId)
+        const tgtCat = cats.find((c) => c.id === tgtId)
+
+        // Thesis never links directly to subtopics
+        if (source === 'thesis-center' && tgtCat?.parentId) return
+        if (target === 'thesis-center' && srcCat?.parentId) return
+
+        // Parent↔child is represented by parentId — don't duplicate
+        if (srcCat && tgtCat && (srcCat.parentId === tgtCat.id || tgtCat.parentId === srcCat.id)) {
+          return
+        }
 
         set((state) => {
           if (connectionExists(state.project.connections, source, target)) return state
@@ -569,6 +728,7 @@ export const useResearchStore = create<ResearchState>()(
             updatedAt: Date.now(),
           })
         })
+        scheduleSyncToCloud(get)
       },
 
       handleMapDisconnect: (edgeId, source, target) => {
@@ -634,3 +794,14 @@ export const useResearchStore = create<ResearchState>()(
     }
   )
 )
+
+// Auto-sync any project change when signed in (covers mutations that forget to schedule)
+let lastSyncedFingerprint = ''
+useResearchStore.subscribe((state) => {
+  const fingerprint = `${state.activeProjectId}:${state.project.updatedAt}:${state.projects.length}`
+  if (fingerprint === lastSyncedFingerprint) return
+  lastSyncedFingerprint = fingerprint
+  if (!useAuthStore.getState().user) return
+  scheduleSyncToCloud(() => useResearchStore.getState())
+})
+

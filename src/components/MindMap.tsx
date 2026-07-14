@@ -14,6 +14,7 @@ import {
   BackgroundVariant,
   Panel,
   ConnectionLineType,
+  ConnectionMode,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useResearchStore } from '../store/useResearchStore'
@@ -33,6 +34,11 @@ import { DeletableEdge } from './DeletableEdge'
 import { LayoutGrid } from 'lucide-react'
 
 import type { Category, Citation } from '../types'
+import {
+  closestSideHandles,
+  kindFromNodeId,
+  nodeCenter,
+} from '../lib/edgeHandles'
 
 const edgeTypes = {
   deletable: DeletableEdge,
@@ -50,6 +56,36 @@ const defaultEdgeOptions = {
   selectable: true,
 }
 
+function handlesBetween(sourceId: string, targetId: string, nodes: Node[]) {
+  const sourceNode = nodes.find((n) => n.id === sourceId)
+  const targetNode = nodes.find((n) => n.id === targetId)
+  if (!sourceNode || !targetNode) {
+    return { sourceHandle: 'h-bottom', targetHandle: 'h-top' }
+  }
+  const sourceKind = kindFromNodeId(sourceId)
+  const targetKind = kindFromNodeId(targetId)
+  return closestSideHandles(
+    nodeCenter(sourceNode.position, sourceKind, {
+      width: sourceNode.measured?.width ?? sourceNode.width,
+      height: sourceNode.measured?.height ?? sourceNode.height,
+    }),
+    nodeCenter(targetNode.position, targetKind, {
+      width: targetNode.measured?.width ?? targetNode.width,
+      height: targetNode.measured?.height ?? targetNode.height,
+    }),
+    sourceKind,
+    targetKind,
+    {
+      width: sourceNode.measured?.width ?? sourceNode.width,
+      height: sourceNode.measured?.height ?? sourceNode.height,
+    },
+    {
+      width: targetNode.measured?.width ?? targetNode.width,
+      height: targetNode.measured?.height ?? targetNode.height,
+    }
+  )
+}
+
 function buildGraph(
   thesis: string,
   projectName: string,
@@ -59,15 +95,17 @@ function buildGraph(
   selectedCitationId: string | null,
   selectedCategoryId: string | null,
   thesisSelected: boolean,
-  animateEdges: boolean
+  _animateEdges: boolean
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
 
+  const thesisPosition = { x: -120, y: -80 }
+
   nodes.push({
     id: 'thesis-center',
     type: 'thesis',
-    position: { x: -120, y: -80 },
+    position: thesisPosition,
     data: { thesis, projectName },
     draggable: true,
     connectable: true,
@@ -105,31 +143,36 @@ function buildGraph(
       selected: citation.id === selectedCitationId,
     })
 
+    // Sources connect to their category / subcategory (closest sides)
     citation.categoryIds.forEach((categoryId) => {
       const category = categories.find((c) => c.id === categoryId)
       if (!category) return
 
+      const sourceId = `category-${categoryId}`
+      const { sourceHandle, targetHandle } = handlesBetween(sourceId, nodeId, nodes)
+
       edges.push({
         id: assignmentEdgeId(categoryId, citation.id),
-        source: `category-${categoryId}`,
-        sourceHandle: 'out',
+        source: sourceId,
+        sourceHandle,
         target: nodeId,
-        targetHandle: 'in',
+        targetHandle,
         type: 'deletable',
         style: { stroke: category.color, strokeWidth: 2, opacity: 0.85 },
-        animated: animateEdges,
+        animated: false,
         deletable: true,
         data: { deletable: true },
       })
     })
 
     if (citation.categoryIds.length === 0) {
+      const { sourceHandle, targetHandle } = handlesBetween('thesis-center', nodeId, nodes)
       edges.push({
         id: `edge-thesis-unassigned-${citation.id}`,
         source: 'thesis-center',
-        sourceHandle: 'out',
+        sourceHandle,
         target: nodeId,
-        targetHandle: 'in',
+        targetHandle,
         type: 'deletable',
         style: { stroke: '#64748b', strokeWidth: 1.5, opacity: 0.35, strokeDasharray: '6 4' },
         animated: false,
@@ -141,12 +184,35 @@ function buildGraph(
   })
 
   connections.forEach((conn) => {
+    // Main idea only links to top-level categories (not subtopics)
+    if (conn.source === 'thesis-center' || conn.target === 'thesis-center') {
+      const otherId = (conn.source === 'thesis-center' ? conn.target : conn.source).replace(
+        'category-',
+        ''
+      )
+      const otherCat = categories.find((c) => c.id === otherId)
+      if (otherCat?.parentId) return
+    }
+
+    // Skip parent↔child duplicates (rendered as hierarchy edges below)
+    const srcCat = categories.find((c) => `category-${c.id}` === conn.source)
+    const tgtCat = categories.find((c) => `category-${c.id}` === conn.target)
+    if (
+      srcCat &&
+      tgtCat &&
+      (srcCat.parentId === tgtCat.id || tgtCat.parentId === srcCat.id)
+    ) {
+      return
+    }
+
+    const { sourceHandle, targetHandle } = handlesBetween(conn.source, conn.target, nodes)
+
     edges.push({
       id: conn.id,
       source: conn.source,
       target: conn.target,
-      sourceHandle: conn.sourceHandle ?? undefined,
-      targetHandle: conn.targetHandle ?? undefined,
+      sourceHandle,
+      targetHandle,
       type: 'deletable',
       style: {
         stroke:
@@ -158,9 +224,38 @@ function buildGraph(
         strokeWidth: 2.5,
         opacity: 0.85,
       },
-      animated: animateEdges,
+      animated: false,
       deletable: true,
       data: { deletable: true },
+    })
+  })
+
+  // Subtopic → parent category (dashed), then sources hang off the subtopic
+  categories.forEach((category) => {
+    if (!category.parentId) return
+    const parent = categories.find((c) => c.id === category.parentId)
+    if (!parent) return
+
+    const sourceId = `category-${category.parentId}`
+    const targetId = `category-${category.id}`
+    const { sourceHandle, targetHandle } = handlesBetween(sourceId, targetId, nodes)
+
+    edges.push({
+      id: `subcategory-${category.parentId}-to-${category.id}`,
+      source: sourceId,
+      target: targetId,
+      sourceHandle,
+      targetHandle,
+      type: 'deletable',
+      style: {
+        stroke: category.color,
+        strokeWidth: 2.5,
+        opacity: 0.85,
+        strokeDasharray: '8 4',
+      },
+      animated: false,
+      deletable: false,
+      data: { deletable: false },
     })
   })
 
@@ -314,8 +409,9 @@ function MindMapCanvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
-        connectionLineType={ConnectionLineType.Bezier}
+        connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: '#d4644a', strokeWidth: 2 }}
+        connectionMode={ConnectionMode.Loose}
         snapToGrid={false}
         fitView
         fitViewOptions={{ padding: 0.35 }}
@@ -379,11 +475,6 @@ function MindMapCanvas() {
           </button>
         </Panel>
 
-        <Panel position="top-right" className="glass-panel rounded-lg px-3 py-2 m-4 mr-20 pointer-events-auto max-w-[240px]">
-          <p className="text-[10px] font-mono text-arc-500 leading-relaxed">
-            Click the main idea to edit project & lit review. Select a line and press Delete, or use the unlink button to disconnect.
-          </p>
-        </Panel>
 
         <Panel position="bottom-right" className="text-[10px] font-mono text-arc-500/50 m-4 mb-16">
           {project.citations.length} sources · {project.categories.length} categories · {mappedCount} linked

@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
-import { Plus, Sparkles, Trash2, Link2 } from 'lucide-react'
+import { Plus, Sparkles, Trash2, Link2, ChevronRight, ChevronDown } from 'lucide-react'
 import { useResearchStore } from '../store/useResearchStore'
 import { suggestCategoriesFromCitations } from '../lib/categorySuggestions'
-import { countCitationsInCategory, getCategoryById } from '../lib/categories'
+import { countCitationsInCategory, getCategoryById, getTopLevelCategories, getSubcategories } from '../lib/categories'
 
 export function CategoryPanel() {
   const { project, addCategory, removeCategory, selectCategory, selectedCategoryId } =
     useResearchStore()
   const [customLabel, setCustomLabel] = useState('')
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
+  const [addingSubTo, setAddingSubTo] = useState<string | null>(null)
 
   const suggestions = useMemo(
     () =>
@@ -18,12 +20,28 @@ export function CategoryPanel() {
     [project.citations, project.categories]
   )
 
-  const handleCreate = () => {
+  const handleCreate = (parentId?: string) => {
     const label = customLabel.trim()
     if (!label) return
-    addCategory(label, { keywords: [label.toLowerCase()] })
+    addCategory(label, { keywords: [label.toLowerCase()], parentId: parentId || undefined, connectToThesis: !parentId })
     setCustomLabel('')
+    setAddingSubTo(null)
+    if (parentId) {
+      setExpandedCategories(prev => new Set(prev).add(parentId))
+    }
   }
+
+  const toggleExpand = (categoryId: string) => {
+    const newExpanded = new Set(expandedCategories)
+    if (newExpanded.has(categoryId)) {
+      newExpanded.delete(categoryId)
+    } else {
+      newExpanded.add(categoryId)
+    }
+    setExpandedCategories(newExpanded)
+  }
+
+  const topLevel = getTopLevelCategories(project.categories)
 
   return (
     <div className="space-y-3">
@@ -61,18 +79,24 @@ export function CategoryPanel() {
           value={customLabel}
           onChange={(e) => setCustomLabel(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          placeholder="New category name..."
+          placeholder={addingSubTo ? "Subtopic name..." : "New category name..."}
           className="flex-1 rounded-lg px-3 py-2 text-sm hud-input"
         />
         <button
-          onClick={handleCreate}
+          onClick={() => handleCreate(addingSubTo || undefined)}
           disabled={!customLabel.trim()}
           className="px-3 py-2 rounded-lg hud-button text-xs disabled:opacity-40"
-          title="Create category"
+          title={addingSubTo ? "Create subtopic" : "Create category"}
         >
           <Plus size={14} />
         </button>
       </div>
+      {addingSubTo && (
+        <p className="text-[10px] text-arc-400">
+          Adding subtopic to: {getCategoryById(project.categories, addingSubTo)?.label}
+          <button onClick={() => setAddingSubTo(null)} className="ml-2 text-[#9c9590] hover:text-[#f4f1ea]">cancel</button>
+        </p>
+      )}
 
       {project.categories.length === 0 ? (
         <p className="text-[11px] text-slate-600 text-center py-4 font-mono">
@@ -80,34 +104,104 @@ export function CategoryPanel() {
         </p>
       ) : (
         <div className="space-y-1.5">
-          {project.categories.map((cat) => {
+          {topLevel.map((cat) => {
             const count = countCitationsInCategory(project.citations, cat.id)
             const isSelected = selectedCategoryId === cat.id
+            const subcats = getSubcategories(project.categories, cat.id)
+            const hasSubcats = subcats.length > 0
+            const isExpanded = expandedCategories.has(cat.id)
+            
             return (
-              <div
-                key={cat.id}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-arc-500/15 border border-arc-500/40'
-                    : 'bg-stark-800/40 border border-transparent hover:border-arc-500/25'
-                }`}
-                onClick={() => selectCategory(cat.id)}
-              >
-                <span style={{ color: cat.color }}>{cat.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-200 truncate">{cat.label}</p>
-                  <p className="text-[10px] text-slate-500">{count} source{count !== 1 ? 's' : ''}</p>
-                </div>
-                <Link2 size={12} className="text-slate-600 shrink-0" />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    removeCategory(cat.id)
-                  }}
-                  className="text-slate-600 hover:text-red-400 p-1"
+              <div key={cat.id}>
+                <div
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+                    isSelected
+                      ? 'bg-arc-500/15 border border-arc-500/40 cursor-pointer'
+                      : 'bg-stark-800/40 border border-transparent hover:border-arc-500/25 cursor-pointer'
+                  }`}
                 >
-                  <Trash2 size={12} />
-                </button>
+                  {hasSubcats ? (
+                    <button
+                      onClick={() => toggleExpand(cat.id)}
+                      className="p-0.5 text-slate-600 hover:text-slate-300"
+                    >
+                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                  ) : (
+                    <div className="w-5" />
+                  )}
+                  <button
+                    onClick={() => selectCategory(cat.id)}
+                    className="flex-1 flex items-center gap-2 min-w-0"
+                  >
+                    <span style={{ color: cat.color }}>{cat.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate">{cat.label}</p>
+                      <p className="text-[10px] text-slate-500">{count} source{count !== 1 ? 's' : ''}</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setAddingSubTo(cat.id)
+                      setCustomLabel('')
+                      setExpandedCategories(prev => new Set(prev).add(cat.id))
+                    }}
+                    className="text-slate-600 hover:text-arc-400 p-1"
+                    title="Add subtopic"
+                  >
+                    <Plus size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`Delete "${cat.label}"${hasSubcats ? ' and all subtopics' : ''}?`)) {
+                        removeCategory(cat.id)
+                      }
+                    }}
+                    className="text-slate-600 hover:text-red-400 p-1"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+
+                {/* Subcategories */}
+                {isExpanded && hasSubcats && (
+                  <div className="ml-8 mt-1 space-y-1">
+                    {subcats.map((subcat) => {
+                      const subCount = countCitationsInCategory(project.citations, subcat.id)
+                      const isSubSelected = selectedCategoryId === subcat.id
+
+                      return (
+                        <div
+                          key={subcat.id}
+                          className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all cursor-pointer ${
+                            isSubSelected
+                              ? 'bg-arc-500/15 border border-arc-500/40'
+                              : 'bg-stark-800/20 border border-transparent hover:border-arc-500/25'
+                          }`}
+                          onClick={() => selectCategory(subcat.id)}
+                        >
+                          <span style={{ color: subcat.color }} className="text-sm">{subcat.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-200 truncate">{subcat.label}</p>
+                            <p className="text-[10px] text-slate-500">{subCount} source{subCount !== 1 ? 's' : ''}</p>
+                          </div>
+                          <Link2 size={10} className="text-slate-600" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeCategory(subcat.id)
+                            }}
+                            className="text-slate-600 hover:text-red-400 p-1"
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
